@@ -1,7 +1,6 @@
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException
 from typing import List, Optional
 import logging
-import hash
 
 from ..schemas.generation_schemas import (
     TextToModelRequest,
