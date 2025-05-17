@@ -1,0 +1,52 @@
+from pydantic import BaseModel
+from typing import List, Optional
+
+# Schemas for generation endpoints
+
+class ImageToImageRequest(BaseModel):
+    prompt: str
+    style: Optional[str] = None
+    # Note: Image file is handled via multipart/form-data directly in the endpoint, not in this schema
+
+class TextToModelRequest(BaseModel):
+    prompt: str
+    style: Optional[str] = None
+    texture: bool = True
+
+class ImageToModelRequest(BaseModel):
+    image_urls: List[str]
+    prompt: Optional[str] = None
+    style: Optional[str] = None
+    texture: bool = True
+
+class SketchToModelRequest(BaseModel):
+    image_url: str
+    prompt: Optional[str] = None
+    style: Optional[str] = None
+    texture: bool = True
+
+class RefineModelRequest(BaseModel):
+    draft_model_task_id: str
+
+class SelectConceptRequest(BaseModel):
+    concept_task_id: str # Assuming we pass the original image-to-image task ID
+    selected_image_url: str # Assuming we pass the URL of the selected concept image
+    # Need to confirm if Tripo's image-to-model supports taking a URL from an external source like OpenAI's temporary URL
+
+# Schemas for responses
+
+class TaskIdResponse(BaseModel):
+    task_id: str
+
+class ImageToImageResponse(BaseModel):
+    task_id: str
+    image_urls: List[str] # Temporary URLs from OpenAI
+
+class TaskStatusResponse(BaseModel):
+    status: str # e.g., pending, processing, completed, failed
+    progress: Optional[float] = None # 0-100 for Tripo, None for OpenAI
+    result_url: Optional[str] = None # Temporary URL for the generated asset
+    # May need additional fields depending on normalized status details
+
+class ErrorResponse(BaseModel):
+    detail: str 
