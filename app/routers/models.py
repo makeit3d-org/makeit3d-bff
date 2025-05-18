@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from typing import Dict, Any, Optional
 import httpx
 import logging
@@ -84,18 +84,22 @@ async def get_task_status(
 
         elif service.lower() == 'openai':
             if celery_status == 'SUCCESS':
-                # Celery result for OpenAI task is the image data dictionary
-                image_data_result = task.result
-                if not isinstance(image_data_result, dict) or 'image_data' not in image_data_result:
-                     logger.error(f"Celery task {task_id} succeeded but missing expected image_data in result: {task.result}")
-                     raise HTTPException(status_code=500, detail="Internal server error: Missing image data in result.")
+                # Celery result for OpenAI task is a dictionary containing 'image_urls'
+                openai_task_result = task.result
+                if not isinstance(openai_task_result, dict) or 'image_urls' not in openai_task_result:
+                     logger.error(f"Celery task {task_id} succeeded but missing expected 'image_urls' in result: {task.result}")
+                     raise HTTPException(status_code=500, detail="Internal server error: Missing image URLs in result.")
 
-                logger.info(f"Returning completed status for OpenAI task {task_id} from Celery result.")
+                image_urls = openai_task_result.get('image_urls', [])
+                # Set result_url to the first image URL if available
+                first_image_url = image_urls[0] if image_urls else None
+
+                logger.info(f"Returning completed status for OpenAI task {task_id} from Celery result with {len(image_urls)} image URLs.")
                 return TaskStatusResponse(
                     status='completed',
                     progress=100.0,
-                    result_url=None, # result_url is not applicable for OpenAI concepts
-                    result=image_data_result # This contains {'image_data': [...]} 
+                    result_url=first_image_url, # Set result_url to the first image URL
+                    result={'image_urls': image_urls} # Return all image URLs in the result dictionary
                 )
             elif celery_status == 'FAILURE' or celery_status == 'REVOKED':
                  # Celery task failed, report failure
@@ -112,4 +116,19 @@ async def get_task_status(
 
     except Exception as e:
         logger.error(f"Internal server error polling Celery task {task_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error while fetching task status: {e}") 
+        raise HTTPException(status_code=500, detail=f"Internal server error while fetching task status: {e}")
+
+@router.get("/images/{bucket_name}/{file_path:path}") # New endpoint to download images
+async def download_concept_image(bucket_name: str, file_path: str):
+    """Downloads a concept image from Supabase Storage using the storage reference."""
+    logger.info(f"Received download request for image: {bucket_name}/{file_path}")
+    try:
+        image_data = await download_image_from_storage(file_path, bucket_name)
+        # Return the image data directly with the appropriate media type
+        return Response(content=image_data, media_type="image/png") # Assuming PNG for OpenAI concepts
+    except Exception as e:
+        logger.error(f"Error downloading image {bucket_name}/{file_path}: {e}", exc_info=True)
+        # Handle specific errors, e.g., 404 if file not found
+        if "Not Found" in str(e):
+            raise HTTPException(status_code=404, detail="Image not found.")
+        raise HTTPException(status_code=500, detail=f"Failed to download image: {e}") 

@@ -4,10 +4,10 @@ This directory contains basic tests for the makeit3d BFF service endpoints. Thes
 
 ## Prerequisites
 
-*   Docker installed and running on your machine (required only if using the Docker option).
+*   Docker and Docker Compose installed and running on your machine.
 *   Python 3.7+ and `pip` installed.
 *   A local Python virtual environment (`.venv` recommended), created with a supported Python version (3.10, 3.11, or 3.12).
-*   Access to your Tripo AI and OpenAI API keys, configured as environment variables.
+*   Access to your Tripo AI, OpenAI, and Supabase API keys, and Supabase URL, configured as environment variables in a `.env` file in the root directory (`.env` is already in `.gitignore`).
 
 ## Setup
 
@@ -28,7 +28,18 @@ This directory contains basic tests for the makeit3d BFF service endpoints. Thes
     pip install -r requirements.txt
     ```
 
-4.  **Update test placeholders:**
+4.  **Ensure your `.env` file is configured:**
+    Create a `.env` file in the root directory of the project if you haven't already, and add your API keys and Supabase details. For local testing, include:
+    ```
+    TRIPO_API_KEY=your_tripo_api_key
+    OPENAI_API_KEY=your_openai_api_key
+    SUPABASE_URL=your_supabase_url
+    SUPABASE_SERVICE_KEY=your_supabase_service_key
+    BFF_BASE_URL="http://localhost:8000"
+    ```
+    Replace the placeholder values with your actual credentials.
+
+5.  **Update test placeholders:**
     Edit the `tests/test_endpoints.py` file.
     *   Replace placeholder image URLs (`https://example.com/...`) with actual publicly accessible image URLs for the `test_generate_image_to_model` and `test_generate_sketch_to_model` tests.
     *   Replace `YOUR_DRAFT_TASK_ID` in `test_generate_refine_model` with a task ID from a successfully generated *draft* model.
@@ -38,46 +49,46 @@ This directory contains basic tests for the makeit3d BFF service endpoints. Thes
 
 ## Running the BFF Locally (Choose One)
 
-You need the BFF server running locally to execute the tests against. Choose one of the following options:
+You need the BFF server and Celery worker running locally to execute the tests against. Choose one of the following options:
 
-### Option 1: Using Docker
+### Option 1: Using Docker Compose (Recommended for Development)
 
-This option runs the BFF inside a Docker container, simulating a production-like environment.
+This option uses Docker Compose to orchestrate the FastAPI backend, Celery worker, and Redis. The configuration in `docker-compose.yml` includes volume mounts, allowing for live code editing without rebuilding images.
 
-1.  **Build the Docker image:**
-    (You may have already done this, but repeat if necessary)
+1.  **Build and run the services:**
+    In the BFF root directory, run:
     ```bash
-    docker build -t makeit3d-bff .
+    docker-compose up --build
     ```
+    The `--build` flag ensures images are built if they don't exist or if there are changes to the Dockerfile or context. Omit `--build` on subsequent runs if you haven't changed the Dockerfile or dependencies.
 
-2.  **Run the Docker container:**
-    Replace `YOUR_TRIPO_API_KEY` and `YOUR_OPENAI_API_KEY` with your actual API keys.
-    ```bash
-    docker run -d --name makeit3d-bff-instance -p 8000:8000 \
-    -e TRIPO_API_KEY=YOUR_TRIPO_API_KEY \
-    -e OPENAI_API_KEY=YOUR_OPENAI_API_KEY \
-    makeit3d-bff
-    ```
-    Note the `-d` flag runs the container in detached mode. The server will be accessible at `http://127.0.0.1:8000`. You can check if it's running with `docker ps`. To stop it later, use `docker stop makeit3d-bff-instance`.
+    This command will start Redis, the Celery worker, and the FastAPI backend. The backend will be accessible at `http://localhost:8000`.
 
-### Option 2: Using Uvicorn (Direct Python Execution)
+    Keep this terminal open. To stop the services later, press `Ctrl+C`.
 
-This option runs the BFF directly in your local Python environment using uvicorn. This is often easier for development and debugging.
+### Option 2: Using Uvicorn and Celery (Direct Python Execution)
 
-1.  **Ensure your virtual environment is activated:**
-    ```bash
-    source .venv/bin/activate
-    ```
+This option runs the BFF components directly in your local Python environment. You will need separate terminal windows for Uvicorn and the Celery worker.
 
-2.  **Run the FastAPI application:**
+1.  **Ensure your virtual environment is activated** in two separate terminal windows.
+
+2.  **Run the FastAPI application in the first terminal:**
     ```bash
     uvicorn app.main:app --reload
     ```
-    This will start the server, accessible at `http://127.0.0.1:8000`. The `--reload` flag will automatically restart the server when you make code changes. Keep this terminal open and running.
+    This will start the server, accessible at `http://127.0.0.1:8000`. The `--reload` flag provides hot-reloading.
+
+3.  **Run the Celery worker in the second terminal:**
+    ```bash
+    celery -A app.celery_worker worker -l info -P eventlet -c 1
+    ```
+    This starts the worker that will process background tasks.
+
+    Keep both terminals open and running.
 
 ## Running the Tests
 
-Open a **new terminal** window, navigate to the BFF root directory (`/path/to/your/makeit3d-bff`), and activate your virtual environment (`source .venv/bin/activate`). Ensure the BFF server is running using either the Docker or Uvicorn method described above.
+Open a **new terminal** window (a third one if using Option 2), navigate to the BFF root directory (`/path/to/your/makeit3d-bff`), and activate your virtual environment (`source .venv/bin/activate`). Ensure the BFF services (backend and worker) are running using either the Docker Compose or Uvicorn/Celery method described above.
 
 Then, use the `pytest` command to run the tests:
 
@@ -89,9 +100,9 @@ Then, use the `pytest` command to run the tests:
     ```bash
     pytest tests/test_endpoints.py
     ```
-*   **Run a specific test function within a file (e.g., `test_generate_text_to_model` in `test_endpoints.py`):**
+*   **Run a specific test function within a file (e.g., `test_generate_image_to_image` in `test_endpoints.py`):**
     ```bash
-    pytest tests/test_endpoints.py::test_generate_text_to_model
+    pytest tests/test_endpoints.py::test_generate_image_to_image
     ```
 
 Pytest will execute the specified tests. Watch the output for test progress and results. Any generated files (images or models) from successful tests will be downloaded to the `./tests/outputs/` directory. 

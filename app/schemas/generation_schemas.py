@@ -42,14 +42,15 @@ class TaskIdResponse(BaseModel):
 
 class ImageToImageResponse(BaseModel):
     task_id: str
-    # URLs of uploaded images in Supabase Storage
-    image_urls: List[str] # Now returning Supabase Storage URLs
+    # References to uploaded images in Supabase Storage
+    image_references: List[Dict[str, str]] # Change to list of dictionaries for bucket and file_path
 
 class TaskStatusResponse(BaseModel):
     status: str # e.g., pending, processing, completed, failed
     progress: Optional[float] = None # 0-100 for Tripo, None for OpenAI
     result_url: Optional[str] = None # Temporary URL for the generated asset
     result: Optional[Dict[str, Any]] = None # Add an optional result field to hold varied results
+    # For completed OpenAI image tasks, 'result' will contain 'image_references': List[Dict[str, str]]
     # May need additional fields depending on normalized status details
 
 class ErrorResponse(BaseModel):

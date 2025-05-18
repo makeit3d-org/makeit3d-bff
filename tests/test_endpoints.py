@@ -8,7 +8,7 @@ import uuid # Import uuid for generating unique file names
 
 from app.schemas.generation_schemas import ImageToImageRequest
 # Import Supabase client functions
-from app.supabase_client import get_supabase_client, upload_image_to_storage, create_concept_image_record
+from app.supabase_client import get_supabase_client, upload_image_to_storage, create_concept_image_record, download_image_from_storage
 
 BASE_URL = "http://localhost:8000"
 OUTPUTS_DIR = "./tests/outputs"
@@ -115,23 +115,24 @@ async def test_generate_image_to_image(request):
     # Assert task is completed and has image_urls in the result
     assert task_result_data.get('status') == 'completed'
     assert 'result' in task_result_data
-    assert 'image_urls' in task_result_data['result']
+    assert 'image_urls' in task_result_data['result'] # Check for image_urls key in the result dictionary
     image_urls = task_result_data['result']['image_urls']
 
     # Get the expected number of images from the request data
-    expected_n = data.get('n', 1) # Default to 1 if 'n' is not in data
+    expected_n = data.get('n', 1)
 
     assert isinstance(image_urls, list)
     assert len(image_urls) == expected_n # Assert the number of URLs matches the requested n
 
-    # Download and save generated concept images from URLs
+    # Download and save generated concept images from the BFF download endpoint URLs
     for i, image_url in enumerate(image_urls):
         try:
-            # Download the image from the URL
+            # The image_url is already the full URL pointing to our BFF download endpoint
+            logger.info(f"Downloading image from BFF endpoint URL: {image_url}")
             await download_file(image_url, request.node.name, f"concept_{i}.png")
         except Exception as e:
-            logger.error(f"Error downloading image from {image_url}: {e}", exc_info=True)
-            pytest.fail(f"Error downloading image from {image_url}: {e}")
+            logger.error(f"Error downloading image from BFF endpoint {image_url}: {e}", exc_info=True)
+            pytest.fail(f"Error downloading image from BFF endpoint {image_url}: {e}")
 
 
 @pytest.mark.asyncio
@@ -368,7 +369,7 @@ async def test_supabase_upload_and_metadata(request):
     logger.info(f"Running {request.node.name}...")
 
     # 1. Download a small public image
-    image_to_download_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//test-upload-image.png"
+    image_to_download_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg"
     logger.info(f"Downloading image from {image_to_download_url} for Supabase test.")
     async with httpx.AsyncClient() as client:
         image_response = await client.get(image_to_download_url)
@@ -376,47 +377,59 @@ async def test_supabase_upload_and_metadata(request):
         image_content = image_response.content
 
     # 2. Upload the image to Supabase Storage
-    unique_file_name = f"test_uploads/{uuid.uuid4()}.png"
+    # Use .jpg extension to match the downloaded file type
+    unique_file_name = f"test_uploads/{uuid.uuid4()}.jpg"
     logger.info(f"Uploading image to Supabase Storage: {unique_file_name}")
     uploaded_url = await upload_image_to_storage(unique_file_name, image_content)
     logger.info(f"Image uploaded to: {uploaded_url}")
 
     assert uploaded_url is not None
-    assert image_to_download_url.split('/makeit3d-public/')[-1] in uploaded_url # Basic check that the URL is in the expected format/location
+    # Assertions for database record verification start here
 
     # 3. Define metadata and save to the database
     test_task_id = f"test-task-{uuid.uuid4()}"
     test_prompt = "This is a test upload image."
     test_style = "None"
-    logger.info(f"Saving metadata to database for task ID: {test_task_id}")
+    bucket_name = "concept-images" # Use the correct bucket name
 
-    await create_concept_image_record(test_task_id, uploaded_url, test_prompt, test_style)
+    logger.info(f"Saving metadata to database for task ID: {test_task_id} with image_url: {unique_file_name}")
+
+    # Pass the file path (uploaded_url) and bucket name to the create_concept_image_record function
+    await create_concept_image_record(test_task_id, unique_file_name, bucket_name, test_prompt, test_style) # Pass unique_file_name (file_path)
     logger.info(f"Metadata record created.")
 
-    # 4. Retrieve the metadata from the database and verify
+    # 4. Download the image directly from Supabase Storage using the download_image_from_storage function
+    logger.info(f"Downloading image directly from Supabase Storage: {bucket_name}/{unique_file_name}")
+    downloaded_image_data = await download_image_from_storage(unique_file_name, bucket_name)
+    logger.info(f"Image data downloaded directly from Supabase. Size: {len(downloaded_image_data)} bytes.")
+
+    # Basic assertion to check if downloaded data is not empty
+    assert downloaded_image_data is not None and len(downloaded_image_data) > 0, "Downloaded image data is empty or None."
+
+    # 5. Retrieve the metadata from the database and verify
     supabase = get_supabase_client()
     logger.info(f"Retrieving metadata from database for task ID: {test_task_id}")
     try:
         response = supabase.table("concept_images").select("*").eq("task_id", test_task_id).execute()
         logger.info(f"Database query response data: {response.data}")
-        logger.info(f"Database query response error: {response.error}")
-
-        assert response.error is None, f"Database query failed: {response.error}"
+        # Check for errors more robustly
+        assert not hasattr(response, 'error') or response.error is None, "Database query failed."
         assert len(response.data) == 1, "Expected exactly one record for the task ID."
 
         retrieved_record = response.data[0]
 
         assert retrieved_record["task_id"] == test_task_id
-        assert retrieved_record["image_url"] == uploaded_url
+        # Assert against the file_path stored in the image_url column
+        assert retrieved_record["image_url"] == unique_file_name
+        assert retrieved_record["bucket_name"] == bucket_name # Assert against the bucket name
         assert retrieved_record["prompt"] == test_prompt
         assert retrieved_record["style"] == test_style
-        # We could also check created_at is not None, but its value depends on the server time.
 
-        logger.info("Supabase upload and metadata test successful.")
+        logger.info("Supabase upload, metadata storage/retrieval, and direct Supabase download test successful.")
 
     except Exception as e:
-        logger.error(f"Error during database retrieval/verification: {e}", exc_info=True)
-        pytest.fail(f"Error during database retrieval/verification: {e}")
+        logger.error(f"Error during Supabase operations: {e}", exc_info=True)
+        pytest.fail(f"Error during Supabase operations: {e}")
 
     # Optional: Clean up the uploaded file and database record
     # This is good practice for tests, but might add complexity. Skipping for now.

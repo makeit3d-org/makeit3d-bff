@@ -15,8 +15,13 @@ from app.schemas.generation_schemas import (
 )
 # Import the new Supabase client functions
 from app.supabase_client import upload_image_to_storage, create_concept_image_record
+# Import settings
+from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Removed hardcoded BFF_BASE_URL
+# BFF_BASE_URL = "http://localhost:8000"
 
 # Define approximate rate limits (replace with official rates when known)
 # Example: 10 requests per minute for OpenAI, 5 requests per minute for Tripo
@@ -27,7 +32,7 @@ TRIPO_RATE_LIMIT = '5/m' # Keep commented out for now until we manage rate limit
 async def generate_openai_image_task(self, image_bytes: bytes, image_filename: str, request_data_dict: dict):
     """Celery task to call OpenAI image generation API, upload to Supabase, and store metadata."""
     logger.info(f"Celery task {self.request.id}: Starting OpenAI image generation and Supabase upload.")
-    uploaded_image_urls = []
+    uploaded_image_download_urls = []
     task_id = self.request.id
 
     try:
@@ -44,7 +49,8 @@ async def generate_openai_image_task(self, image_bytes: bytes, image_filename: s
 
         logger.info(f"Celery task {task_id}: OpenAI image generation completed, processing {len(b64_images)} images.")
 
-        # --- Supabase Upload and Database Record ---
+        # --- Supabase Upload and Database Record and URL Construction ---
+        bucket_name = "concept-images" # Define the bucket name
         for i, b64_image in enumerate(b64_images):
             try:
                 # Decode base64 to binary
@@ -54,36 +60,38 @@ async def generate_openai_image_task(self, image_bytes: bytes, image_filename: s
                 # Assuming PNG format from OpenAI, might need adjustment if different
                 file_name = f"{task_id}/{i}.png"
 
-                # Upload to Supabase Storage (using the default 'concept_images' bucket)
-                image_url = await upload_image_to_storage(file_name, image_data)
-                logger.info(f"Celery task {task_id}: Uploaded image {i} to {image_url}")
-                uploaded_image_urls.append(image_url)
+                # Upload to Supabase Storage
+                file_path = await upload_image_to_storage(file_name, image_data, bucket_name)
+                logger.info(f"Celery task {task_id}: Uploaded image {i} to {bucket_name}/{file_path}")
 
-                # Create database record
-                # We can extract prompt and style from the request_data if available
+                # Construct the BFF download URL using settings
+                download_url = f"{settings.bff_base_url}/images/{bucket_name}/{file_path}"
+                uploaded_image_download_urls.append(download_url)
+                logger.info(f"Celery task {task_id}: Constructed download URL: {download_url}")
+
+                # Create database record using the download URL and bucket_name
                 prompt = request_data.prompt
-                style = request_data.style # Assuming style is part of ImageToImageRequest, adjust if needed
-                await create_concept_image_record(task_id, image_url, prompt, style)
+                style = request_data.style
+                await create_concept_image_record(task_id, download_url, bucket_name, prompt, style)
                 logger.info(f"Celery task {task_id}: Created database record for image {i}.")
 
             except Exception as upload_e:
                 logger.error(f"Celery task {task_id}: Failed to process and upload image {i}: {upload_e}", exc_info=True)
-                # Decide how to handle partial failures - for now, log and continue
-                # Alternatively, mark the entire task as failed or retry
-                pass # Continue processing other images if one fails
+                # Decide how to handle partial failures - log and continue for now
+                pass
 
-        if not uploaded_image_urls:
+        if not uploaded_image_download_urls:
              # If no images were successfully uploaded, raise an error
-             raise Exception("No images were successfully uploaded to Supabase Storage.")
+             raise Exception("No images were successfully processed and uploaded.")
 
         logger.info(f"Celery task {task_id}: Finished processing and uploading images.")
 
-        # Return the list of public URLs
-        return {'image_urls': uploaded_image_urls}
+        # Return the list of BFF download URLs
+        # The result will be picked up by the /tasks/{task_id}/status endpoint
+        return {'image_urls': uploaded_image_download_urls}
 
     except Exception as e:
         logger.error(f"Celery task {task_id}: OpenAI task failed: {e}", exc_info=True)
-        # Propagate the exception to mark the task as failed
         raise self.retry(exc=e, countdown=5, max_retries=3)
 
 @celery_app.task(bind=True, rate_limit=TRIPO_RATE_LIMIT)
