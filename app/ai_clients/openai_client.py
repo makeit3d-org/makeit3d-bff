@@ -19,7 +19,7 @@ async def generate_image_to_image(image_file: bytes, filename: str, request_data
         "image": (filename, image_file, "image/png"), # Assuming PNG for sketch/image input
     }
     data = {
-        "prompt": request_data.prompt,
+        "prompt": f"{request_data.prompt} Style: {request_data.style}" if request_data.style else request_data.prompt,
         "model": "gpt-image-1",
         "n": 2,
         "size": "256x256",
@@ -42,19 +42,9 @@ async def generate_image_to_image(image_file: bytes, filename: str, request_data
         raise # Re-raise the exception after logging
 
 async def poll_image_to_image_status(task_id: str) -> Dict[str, Any]:
-    """Polls OpenAI for the status of an image generation task."""
-    # OpenAI's image generation GET endpoint doesn't provide a detailed status like pending/processing,
-    # it just returns the result if complete or an error if failed/invalid task ID.
-    # We will treat a successful response as 'completed'.
-    url = f"{OPENAI_API_BASE_URL}/images/generations/{task_id}" # Note: This GET endpoint seems non-standard based on current OpenAI docs, will rely on common pattern or re-check.
-    # Re-checking OpenAI docs: The image generation (DALL-E) and edit API (`/v1/images/generations`, `/v1/images/edits`) do not have a separate GET status endpoint by ID in the standard way.
-    # The initial POST call is synchronous for DALL-E 2 and 3, returning URLs directly.
-    # The concept of polling by task_id for DALL-E edits might be based on a misunderstanding or a feature of a different OpenAI product/version.
-    # Assuming for the MVP, the initial POST /generate/image-to-image will return the URLs synchronously as per standard DALL-E API behavior.
-    # Therefore, a separate polling function for OpenAI image tasks might not be necessary for the MVP.
-    # I will adjust the /generate/image-to-image endpoint and the status polling endpoint logic accordingly.
-
-    # For now, leaving a placeholder function but the logic needs to be re-evaluated based on synchronous OpenAI image API behavior.
-    logger.info(f"Attempting to poll status for OpenAI task ID: {task_id}. Note: OpenAI image APIs are typically synchronous.")
-    # This function might not be called if the generate endpoint is synchronous.
+    """Simulates polling for OpenAI image generation task status (synchronous API)."""
+    # OpenAI's image generation and edit APIs (DALL-E) are synchronous and return results directly.
+    # Polling is not required for these tasks. This function exists to satisfy the polling endpoint structure.
+    logger.info(f"Status requested for OpenAI task ID: {task_id}. OpenAI image APIs are synchronous, status is always 'completed'.")
+    # Return a simulated completed status.
     return {"status": "completed", "progress": 100.0, "result_url": None} # Return None for result_url as BFF doesn't store it 

@@ -2,307 +2,313 @@ import httpx
 import pytest
 import os
 import time
+import logging
 
 BASE_URL = "http://localhost:8000"
 OUTPUTS_DIR = "./tests/outputs"
+
+# Configure logging for tests
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Ensure the outputs directory exists
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 
 # --- Helper function to download files ---
-async def download_file(url: str, filename: str):
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        file_path = os.path.join(OUTPUTS_DIR, filename)
-        with open(file_path, "wb") as f:
-            f.write(response.content)
-        print(f"Downloaded {url} to {file_path}")
-
-# --- Helper function to poll Tripo AI task status ---
-async def poll_tripo_task(task_id: str):
-    status_url = f"{BASE_URL}/tasks/{task_id}/status"
-    print(f"Polling Tripo task {task_id}...")
-    while True:
+async def download_file(url: str, test_name: str, file_suffix: str):
+    file_name = f"{test_name}_{file_suffix}"
+    file_path = os.path.join(OUTPUTS_DIR, file_name)
+    logger.info(f"Downloading {url} to {file_path}")
+    try:
         async with httpx.AsyncClient() as client:
-            status_response = await client.get(status_url, params={'service': 'tripo'})
-            status_response.raise_for_status()
-            status_data = status_response.json()
-            print(f"Task {task_id} status: {status_data['status']}, Progress: {status_data.get('progress')}")
+            response = await client.get(url)
+            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+            with open(file_path, "wb") as f:
+                f.write(response.content)
+        logger.info(f"Successfully downloaded {file_name}")
+        return file_path
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error downloading file from {url}: {e.response.status_code} - {e.response.text}", exc_info=True)
+        pytest.fail(f"Failed to download file from {url}: {e.response.status_code}")
+    except Exception as e:
+        logger.error(f"Error downloading file from {url}: {e}", exc_info=True)
+        pytest.fail(f"Error downloading file from {url}: {e}")
 
-            if status_data['status'] == 'completed':
-                print(f"Task {task_id} completed.")
-                return status_data.get('result_url')
-            elif status_data['status'] == 'failed':
-                print(f"Task {task_id} failed.")
-                pytest.fail(f"Tripo AI task {task_id} failed.")
+# --- Helper function to poll task status ---
+async def poll_task_status(task_id: str, service: str):
+    status_url = f"{BASE_URL}/tasks/{task_id}/status?service={service.lower()}"
+    logger.info(f"Polling {service} task {task_id}...")
+    while True:
+        try:
+            async with httpx.AsyncClient() as client:
+                status_response = await client.get(status_url)
+                status_response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+                status_data = status_response.json()
+                logger.info(f"Task {task_id} status: {status_data.get('status')}, Progress: {status_data.get('progress')}")
 
-            time.sleep(5) # Poll every 5 seconds
+                if status_data.get('status') == 'completed':
+                    logger.info(f"Task {task_id} completed.")
+                    return status_data.get('result_url')
+                elif status_data.get('status') == 'failed':
+                    logger.error(f"Task {task_id} failed. Status data: {status_data}")
+                    pytest.fail(f"{service.capitalize()} task {task_id} failed.")
+
+            time.sleep(2) # Poll every 2 seconds
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error polling status for task ID {task_id} from service {service}: {e.response.status_code} - {e.response.text}", exc_info=True)
+            pytest.fail(f"Failed to poll status for task {task_id} from {service}: {e.response.status_code}")
+        except Exception as e:
+            logger.error(f"Error polling status for task ID {task_id} from service {service}: {e}", exc_info=True)
+            pytest.fail(f"Error polling status for task {task_id} from {service}: {e}")
 
 # --- Test Endpoints ---
 
 @pytest.mark.asyncio
-async def test_generate_image_to_image():
-    """Test the /generate/image-to-image endpoint (OpenAI concepts)."""
+async def test_generate_image_to_image(request):
+    """Test 1.1: /generate/image-to-image endpoint (OpenAI concepts)."""
     endpoint = f"{BASE_URL}/generate/image-to-image"
-    # For testing multipart/form-data, you need a local image file.
-    # Replace 'path/to/your/test_image.png' with a valid path to a test image.
-    test_image_path = "./tests/test_image.png" # Placeholder: Create a dummy file or use a real one
-    if not os.path.exists(test_image_path):
-        # Create a dummy file if it doesn't exist
-        with open(test_image_path, "wb") as f:
-            f.write(b"dummy image data")
-        print(f"Created dummy test image at {test_image_path}")
+    image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg"
+    prompt = "Transform me into a toy action figure. Make it look like I am made out of plastic. Make sure to still make it look like me as much as possible. Include my whole body with no background, surroundings or detached objects."
+    style = "Cartoonish, cute but still realistic."
 
-    files = {'image': ('test_image.png', open(test_image_path, 'rb'))}
-    data = {'prompt': 'a futuristic car', 'style': 'cartoon'}
+    logger.info(f"Running {request.node.name}...")
 
-    print(f"Calling {endpoint}...")
+    # Download the image from the public URL to include in the multipart request
+    async with httpx.AsyncClient() as client:
+        image_response = await client.get(image_url)
+        image_response.raise_for_status()
+        image_content = image_response.content
+        image_filename = image_url.split("/")[-1] # Extract filename from URL
+
+    files = {'image': (image_filename, image_content, 'image/jpeg')}
+    data = {'prompt': prompt, 'style': style}
+
+    logger.info(f"Calling {endpoint} with prompt='{prompt}', style='{style}' and image='{image_filename}'...")
     async with httpx.AsyncClient() as client:
         response = await client.post(endpoint, files=files, data=data)
         response.raise_for_status()
         result = response.json()
+
+    logger.info(f"Received response: {result}")
 
     assert "task_id" in result
     assert "image_urls" in result
     assert isinstance(result["image_urls"], list)
     assert len(result["image_urls"]) > 0
 
-    print(f"Received task_id: {result['task_id']}")
-    print(f"Received image_urls: {result['image_urls']}")
-
     # Download generated concept images
     for i, url in enumerate(result["image_urls"]):
-        await download_file(url, f"concept_{i}.png")
+        await download_file(url, request.node.name, f"concept_{i}.jpg") # Assuming jpg output for concepts
 
 
 @pytest.mark.asyncio
-async def test_generate_text_to_model():
-    """Test the /generate/text-to-model endpoint (Tripo AI)."""
+async def test_generate_text_to_model(request):
+    """Test 2.1: /generate/text-to-model endpoint (Tripo AI direct)."""
     endpoint = f"{BASE_URL}/generate/text-to-model"
-    request_data = {"prompt": "a small house", "texture": True}
+    prompt = "A violet colored cartoon flying elephant with big flapping ears"
 
-    print(f"Calling {endpoint} with {request_data}...")
+    logger.info(f"Running {request.node.name}...")
+
+    request_data = {"prompt": prompt, "texture": True}
+
+    logger.info(f"Calling {endpoint} with prompt='{prompt}'...")
     async with httpx.AsyncClient() as client:
         response = await client.post(endpoint, json=request_data)
         response.raise_for_status()
         result = response.json()
 
-    assert "task_id" in result
-    task_id = result["task_id"]
-    print(f"Received Tripo AI task_id: {task_id}")
-
-    # Poll for task completion
-    model_url = await poll_tripo_task(task_id)
-
-    assert model_url is not None
-    print(f"Received model URL: {model_url}")
-
-    # Download the generated model
-    await download_file(model_url, f"text_to_model_{task_id}.glb")
-
-
-@pytest.mark.asyncio
-async def test_generate_image_to_model():
-    """Test the /generate/image-to-model endpoint (Tripo AI multiview)."""
-    endpoint = f"{BASE_URL}/generate/image-to-model"
-    # For image-to-model (multiview), you need URLs of input images.
-    # Replace with actual publicly accessible image URLs for testing.
-    request_data = {
-        "image_urls": [
-            "https://example.com/image1.png", # Placeholder URL
-            "https://example.com/image2.png"  # Placeholder URL
-        ],
-        "prompt": "a chair",
-        "texture": True
-    }
-    print("NOTE: Replace placeholder image_urls with actual publicly accessible URLs for this test.")
-
-    print(f"Calling {endpoint} with {request_data}...")
-    async with httpx.AsyncClient() as client:
-        # Note: Tripo AI needs to be able to access these URLs.
-        # Using dummy URLs here will result in Tripo AI errors.
-        response = await client.post(endpoint, json=request_data)
-        response.raise_for_status()
-        result = response.json()
+    logger.info(f"Received response: {result}")
 
     assert "task_id" in result
     task_id = result["task_id"]
-    print(f"Received Tripo AI task_id: {task_id}")
+    logger.info(f"Received Tripo AI task_id: {task_id}")
 
-    # Poll for task completion
-    # NOTE: This will likely fail with dummy URLs above.
-    model_url = await poll_tripo_task(task_id)
+    # Poll for task completion and get result URL
+    model_url = await poll_task_status(task_id, "tripo")
 
     assert model_url is not None
-    print(f"Received model URL: {model_url}")
+    logger.info(f"Received model URL: {model_url}")
 
     # Download the generated model
-    await download_file(model_url, f"image_to_model_{task_id}.glb")
+    await download_file(model_url, request.node.name, "model.glb")
 
 
 @pytest.mark.asyncio
-async def test_generate_sketch_to_model():
-    """Test the /generate/sketch-to-model endpoint (Tripo AI single image)."""
-    endpoint = f"{BASE_URL}/generate/sketch-to-model"
-     # For sketch-to-model, you need a URL of the input sketch image.
-    # Replace with an actual publicly accessible sketch image URL for testing.
-    request_data = {
-        "image_url": "https://example.com/sketch.png", # Placeholder URL
-        "prompt": "a simple sketch",
-        "texture": True
-    }
-    print("NOTE: Replace placeholder image_url with an actual publicly accessible URL for this test.")
+async def test_generate_from_concept(request):
+    """Test 2.2: /generate/select-concept endpoint (Tripo AI from OpenAI concept)."""
+    # This test depends on the output of test_1_1_image_to_image.
+    # You need to run test_1_1 first and get a valid concept image URL and task ID.
+    # For automated testing, you might chain these or retrieve a known good concept URL/task ID.
+    # For this implementation, I'll use placeholders and skip the test if they are not updated.
+    select_concept_endpoint = f"{BASE_URL}/generate/select-concept"
 
-    print(f"Calling {endpoint} with {request_data}...")
-    async with httpx.AsyncClient() as client:
-        # Note: Tripo AI needs to be able to access this URL.
-        # Using a dummy URL here will result in Tripo AI errors.
-        response = await client.post(endpoint, json=request_data)
-        response.raise_for_status()
-        result = response.json()
+    # --- PLACEHOLDERS --- Update these with actual values after running test_1_1 ---
+    concept_image_url = os.environ.get("TEST_2_2_CONCEPT_IMAGE_URL", "YOUR_CONCEPT_IMAGE_URL") # Get from env var or placeholder
+    concept_task_id = os.environ.get("TEST_2_2_CONCEPT_TASK_ID", "YOUR_CONCEPT_TASK_ID") # Get from env var or placeholder
+    # ---------------------------------------------------------------------------
 
-    assert "task_id" in result
-    task_id = result["task_id"]
-    print(f"Received Tripo AI task_id: {task_id}")
+    if concept_image_url == "YOUR_CONCEPT_IMAGE_URL" or concept_task_id == "YOUR_CONCEPT_TASK_ID":
+         logger.info(f"Skipping {request.node.name}: PLACEHOLDERS not updated. Run test_1_1 and update environment variables TEST_2_2_CONCEPT_IMAGE_URL and TEST_2_2_CONCEPT_TASK_ID, or update the placeholders in the test file.")
+         pytest.skip("Requires a valid concept image URL and task ID from test_1_1.")
 
-    # Poll for task completion
-    # NOTE: This will likely fail with a dummy URL above.
-    model_url = await poll_tripo_task(task_id)
-
-    assert model_url is not None
-    print(f"Received model URL: {model_url}")
-
-    # Download the generated model
-    await download_file(model_url, f"sketch_to_model_{task_id}.glb")
-
-
-@pytest.mark.asyncio
-async def test_generate_refine_model():
-    """Test the /generate/refine-model endpoint (Tripo AI)."""
-    endpoint = f"{BASE_URL}/generate/refine-model"
-    # To test refine-model, you need a task_id of a *draft* model that was successfully generated.
-    # This requires successfully running one of the initial generation tests first and getting a task_id.
-    # Replace 'YOUR_DRAFT_TASK_ID' with an actual task ID of a successfully generated draft model.
-    draft_task_id = "YOUR_DRAFT_TASK_ID" # Placeholder
-    print("NOTE: Replace YOUR_DRAFT_TASK_ID with an actual task ID of a successfully generated draft model.")
-
-    if draft_task_id == "YOUR_DRAFT_TASK_ID":
-        print("Skipping refine model test: YOUR_DRAFT_TASK_ID is a placeholder.")
-        pytest.skip("Requires a valid draft model task ID.")
-
-    request_data = {"draft_model_task_id": draft_task_id}
-
-    print(f"Calling {endpoint} with {request_data}...")
-    async with httpx.AsyncClient() as client:
-        response = await client.post(endpoint, json=request_data)
-        response.raise_for_status()
-        result = response.json()
-
-    assert "task_id" in result
-    task_id = result["task_id"]
-    print(f"Received Tripo AI refine task_id: {task_id}")
-
-    # Poll for task completion
-    model_url = await poll_tripo_task(task_id)
-
-    assert model_url is not None
-    print(f"Received refined model URL: {model_url}")
-
-    # Download the generated model
-    await download_file(model_url, f"refine_model_{task_id}.glb")
-
-
-@pytest.mark.asyncio
-async def test_generate_select_concept():
-    """Test the /generate/select-concept endpoint (Tripo AI from concept)."""
-    endpoint = f"{BASE_URL}/generate/select-concept"
-    # To test select-concept, you need a URL of a generated 2D concept image.
-    # This requires successfully running the image-to-image test first and getting a concept image URL.
-    # Replace 'YOUR_CONCEPT_IMAGE_URL' with an actual URL of a generated concept image.
-    concept_image_url = "YOUR_CONCEPT_IMAGE_URL" # Placeholder
-    concept_task_id = "YOUR_CONCEPT_TASK_ID" # Placeholder (Optional, but included in schema)
-    print("NOTE: Replace YOUR_CONCEPT_IMAGE_URL and YOUR_CONCEPT_TASK_ID with actual values for this test.")
-
-    if concept_image_url == "YOUR_CONCEPT_IMAGE_URL":
-         print("Skipping select concept test: YOUR_CONCEPT_IMAGE_URL is a placeholder.")
-         pytest.skip("Requires a valid concept image URL.")
+    logger.info(f"Running {request.node.name} with concept URL: {concept_image_url}")
 
     request_data = {
         "concept_task_id": concept_task_id, # Use the dummy or real concept task ID
-        "selected_image_url": concept_image_url
+        "selected_image_url": concept_image_url,
+        "texture": True # Assuming texture is true for this test
     }
 
-    print(f"Calling {endpoint} with {request_data}...")
+    logger.info(f"Calling {select_concept_endpoint} with selected_image_url='{concept_image_url}'...")
+    async with httpx.AsyncClient() as client:
+        response = await client.post(select_concept_endpoint, json=request_data)
+        response.raise_for_status()
+        result = response.json()
+
+    logger.info(f"Received response: {result}")
+
+    assert "task_id" in result
+    task_id = result["task_id"]
+    logger.info(f"Received Tripo AI task_id from concept: {task_id}")
+
+    # Poll for task completion and get result URL
+    model_url = await poll_task_status(task_id, "tripo")
+
+    assert model_url is not None
+    logger.info(f"Received model URL: {model_url}")
+
+    # Download the generated model
+    await download_file(model_url, request.node.name, "model.glb")
+
+
+@pytest.mark.asyncio
+async def test_generate_image_to_model_texture(request):
+    """Test 3.1 (texture): /generate/image-to-model endpoint (Tripo AI multiview) using concept output."""
+    # This test uses the output concept image URL from test_1_1_image_to_image as input.
+    # Similar to test_2_2, you need to run test_1_1 first and get a valid concept image URL.
+    # For this implementation, I'll use a placeholder and skip the test if it's not updated.
+    image_to_model_endpoint = f"{BASE_URL}/generate/image-to-model"
+
+    # --- PLACEHOLDER --- Update this with an actual concept image URL after running test_1_1 ---
+    concept_image_url = os.environ.get("TEST_3_1_CONCEPT_IMAGE_URL", "YOUR_CONCEPT_IMAGE_URL") # Get from env var or placeholder
+    # ---------------------------------------------------------------------------------------
+
+    if concept_image_url == "YOUR_CONCEPT_IMAGE_URL":
+         logger.info(f"Skipping {request.node.name}: PLACEHOLDER not updated. Run test_1_1 and update environment variable TEST_3_1_CONCEPT_IMAGE_URL, or update the placeholder in the test file.")
+         pytest.skip("Requires a valid concept image URL from test_1_1.")
+
+    logger.info(f"Running {request.node.name} with input image URL: {concept_image_url}")
+
+    request_data = {
+        "image_urls": [concept_image_url], # Using the concept image URL as input for multiview (assuming Tripo handles single image input here too)
+        "prompt": "3D model from concept", # Optional prompt
+        "style": "", # Optional style
+        "texture": True
+    }
+
+    logger.info(f"Calling {image_to_model_endpoint} with image_urls='{request_data["image_urls"]}'...")
+    async with httpx.AsyncClient() as client:
+        response = await client.post(image_to_model_endpoint, json=request_data)
+        response.raise_for_status()
+        result = response.json()
+
+    logger.info(f"Received response: {result}")
+
+    assert "task_id" in result
+    task_id = result["task_id"]
+    logger.info(f"Received Tripo AI task_id: {task_id}")
+
+    # Poll for task completion and get result URL
+    model_url = await poll_task_status(task_id, "tripo")
+
+    assert model_url is not None
+    logger.info(f"Received model URL: {model_url}")
+
+    # Download the generated model
+    await download_file(model_url, request.node.name, "model.glb")
+
+
+@pytest.mark.asyncio
+async def test_generate_image_to_model_no_texture(request):
+    """Test 3.1 (no texture): /generate/image-to-model endpoint (Tripo AI multiview) using concept output."""
+    # This test also uses the output concept image URL from test_1_1_image_to_image as input.
+    # Similar to test_3_1_texture, you need to run test_1_1 first and get a valid concept image URL.
+    # For this implementation, I'll use a placeholder and skip the test if it's not updated.
+    image_to_model_endpoint = f"{BASE_URL}/generate/image-to-model"
+
+    # --- PLACEHOLDER --- Update this with an actual concept image URL after running test_1_1 ---
+    concept_image_url = os.environ.get("TEST_3_1_CONCEPT_IMAGE_URL", "YOUR_CONCEPT_IMAGE_URL") # Get from env var or placeholder
+    # ---------------------------------------------------------------------------------------
+
+    if concept_image_url == "YOUR_CONCEPT_IMAGE_URL":
+         logger.info(f"Skipping {request.node.name}: PLACEHOLDER not updated. Run test_1_1 and update environment variable TEST_3_1_CONCEPT_IMAGE_URL, or update the placeholder in the test file.")
+         pytest.skip("Requires a valid concept image URL from test_1_1.")
+
+    logger.info(f"Running {request.node.name} with input image URL: {concept_image_url}")
+
+    request_data = {
+        "image_urls": [concept_image_url], # Using the concept image URL as input for multiview (assuming Tripo handles single image input here too)
+        "prompt": "3D model from concept", # Optional prompt
+        "style": "", # Optional style
+        "texture": False # Set texture to False for this test
+    }
+
+    logger.info(f"Calling {image_to_model_endpoint} with image_urls='{request_data["image_urls"]}'...")
+    async with httpx.AsyncClient() as client:
+        response = await client.post(image_to_model_endpoint, json=request_data)
+        response.raise_for_status()
+        result = response.json()
+
+    logger.info(f"Received response: {result}")
+
+    assert "task_id" in result
+    task_id = result["task_id"]
+    logger.info(f"Received Tripo AI task_id: {task_id}")
+
+    # Poll for task completion and get result URL
+    model_url = await poll_task_status(task_id, "tripo")
+
+    assert model_url is not None
+    logger.info(f"Received model URL: {model_url}")
+
+    # Download the generated model
+    await download_file(model_url, request.node.name, "model.glb")
+
+
+@pytest.mark.asyncio
+async def test_generate_sketch_to_model(request):
+    """Test 4.1: /generate/sketch-to-model endpoint (Tripo AI single image)."""
+    endpoint = f"{BASE_URL}/generate/sketch-to-model"
+    sketch_image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//sketch-cat.jpg"
+    prompt = "Create a photorealistic 3D rendering of the subject depicted in the provided sketch. Preserve the original proportions, geometry, and quirks of the drawing, no matter how unrealistic or awkward they are. The result should look like the sketch was literally brought to life in the real world, with realistic textures, lighting, and surroundings. The rendering should show what it would look like if the drawing existed as a physical object or creature."
+    style = None # No style for this test
+
+    logger.info(f"Running {request.node.name} with sketch image URL: {sketch_image_url}")
+
+    request_data = {
+        "image_url": sketch_image_url,
+        "prompt": prompt,
+        "style": style,
+        "texture": True # Assuming texture is true for this test
+    }
+
+    logger.info(f"Calling {endpoint} with image_url='{sketch_image_url}' and prompt='{prompt}'...")
     async with httpx.AsyncClient() as client:
         response = await client.post(endpoint, json=request_data)
         response.raise_for_status()
         result = response.json()
 
+    logger.info(f"Received response: {result}")
+
     assert "task_id" in result
     task_id = result["task_id"]
-    print(f"Received Tripo AI task_id from concept: {task_id}")
+    logger.info(f"Received Tripo AI task_id: {task_id}")
 
-    # Poll for task completion
-    model_url = await poll_tripo_task(task_id)
+    # Poll for task completion and get result URL
+    model_url = await poll_task_status(task_id, "tripo")
 
     assert model_url is not None
-    print(f"Received model URL from concept: {model_url}")
+    logger.info(f"Received model URL: {model_url}")
 
     # Download the generated model
-    await download_file(model_url, f"select_concept_{task_id}.glb")
-
-
-@pytest.mark.asyncio
-async def test_get_task_status_tripo():
-    """Test the /tasks/{task_id}/status endpoint for a Tripo AI task."""
-    # To test this, you need a task_id from a previously initiated Tripo AI task.
-    # Replace 'YOUR_TRIPO_TASK_ID' with an actual Tripo task ID.
-    tripo_task_id = "YOUR_TRIPO_TASK_ID" # Placeholder
-    print("NOTE: Replace YOUR_TRIPO_TASK_ID with an actual Tripo task ID for this test.")
-
-    if tripo_task_id == "YOUR_TRIPO_TASK_ID":
-        print("Skipping Tripo status test: YOUR_TRIPO_TASK_ID is a placeholder.")
-        pytest.skip("Requires a valid Tripo task ID.")
-
-    status_url = f"{BASE_URL}/tasks/{tripo_task_id}/status"
-
-    print(f"Calling {status_url}?service=tripo...")
-    async with httpx.AsyncClient() as client:
-        response = await client.get(status_url, params={'service': 'tripo'})
-        response.raise_for_status()
-        status_data = response.json()
-
-    print(f"Tripo task status: {status_data}")
-    assert "status" in status_data
-    assert status_data["status"] in ["pending", "processing", "completed", "failed", "unknown"]
-
-
-@pytest.mark.asyncio
-async def test_get_task_status_openai():
-    """Test the /tasks/{task_id}/status endpoint for an OpenAI task."""
-    # To test this, you need a task_id from a previously initiated OpenAI task.
-    # Replace 'YOUR_OPENAI_TASK_ID' with an actual OpenAI task ID.
-    # Note: As discussed, OpenAI image generation is typically synchronous,
-    # so a real OpenAI task ID for polling might not be readily available
-    # or the status endpoint might behave differently.
-    openai_task_id = "YOUR_OPENAI_TASK_ID" # Placeholder
-    print("NOTE: Replace YOUR_OPENAI_TASK_ID with an actual OpenAI task ID for this test.")
-
-    if openai_task_id == "YOUR_OPENAI_TASK_ID":
-         print("Skipping OpenAI status test: YOUR_OPENAI_TASK_ID is a placeholder.")
-         pytest.skip("Requires a valid OpenAI task ID.")
-
-    status_url = f"{BASE_URL}/tasks/{openai_task_id}/status"
-
-    print(f"Calling {status_url}?service=openai...")
-    async with httpx.AsyncClient() as client:
-        response = await client.get(status_url, params={'service': 'openai'})
-        response.raise_for_status()
-        status_data = response.json()
-
-    print(f"OpenAI task status: {status_data}")
-    assert "status" in status_data
-    # For MVP, we simulate completed status for OpenAI polling
-    assert status_data["status"] == "completed"
-    assert status_data.get("result_url") is None # Result URL is returned by generation endpoint directly 
+    await download_file(model_url, request.node.name, "model.glb") 
