@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: makeit3d-bff-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: makeit3d-bff-backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app  # Mount the current directory to /app inside the container for hot-reloading
+    ports:
+      - "8000:8000"
+    environment:
+      # Pass environment variables to the backend service
+      # In a real scenario, use a proper secrets management solution
+      - TRIPO_API_KEY=${TRIPO_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_URL=redis://redis:6379/0 # Redis service name as hostname
+    depends_on:
+      - redis
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: makeit3d-bff-celery_worker
+    command: celery -A app.celery_worker worker -l info -P eventlet -c 1 # Use eventlet for async tasks
+    volumes:
+      - .:/app  # Mount the current directory to /app for code changes
+    environment:
+      # Pass environment variables to the celery worker service
+      - TRIPO_API_KEY=${TRIPO_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_URL=redis://redis:6379/0 # Redis service name as hostname
+    depends_on:
+      - redis
+
+volumes:
+  redis_data: 

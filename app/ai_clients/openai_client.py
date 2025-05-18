@@ -2,8 +2,8 @@ import httpx
 from typing import List, Dict, Any
 import logging
 
-from ..config import settings
-from ..schemas.generation_schemas import ImageToImageRequest
+from app.config import settings
+from app.schemas.generation_schemas import ImageToImageRequest
 
 logger = logging.getLogger(__name__)
 
@@ -21,18 +21,18 @@ async def generate_image_to_image(image_file: bytes, filename: str, request_data
     data = {
         "prompt": f"{request_data.prompt} Style: {request_data.style}" if request_data.style else request_data.prompt,
         "model": "gpt-image-1",
-        "n": 2,
-        "size": "256x256",
-        "response_format": "url",
+        "n": request_data.n,
+        "size": "auto",
     }
     # Note: Mask parameter is not included as per BFF architecture doc
 
     logger.info(f"Calling OpenAI Image Edit API: {url}")
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=40.0) as client:
             response = await client.post(url, headers=headers, files=files, data=data)
             response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
             logger.info(f"OpenAI Image Edit API response status: {response.status_code}")
+            # For gpt-image-1, the response contains 'data' as a list of objects with 'b64_json'
             return response.json()
     except httpx.HTTPStatusError as e:
         logger.error(f"OpenAI HTTP error: {e.response.status_code} - {e.response.text}", exc_info=True)

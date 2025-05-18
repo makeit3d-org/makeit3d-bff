@@ -16,14 +16,15 @@ This document describes the architecture for the Backend-for-Frontend (BFF) serv
         - `image`: File (required) - The source image file (e.g., sketch or image from frontend).
         - `prompt`: String (required) - Text prompt to guide generation.
         - `style`: String (optional) - Style hint (used to customize prompt sent to OpenAI).
+        - `n`: Integer (optional, default: 1) - The number of images to generate. Must be between 1 and 10.
         - **Note:** The OpenAI `createEdit` API supports transparency via a `mask` parameter, but this BFF endpoint currently does not include a mask parameter. Transparency in the output would depend on the input image's alpha channel if no mask is used.
 - **Process:**
-    1. Receives image file, prompt, and style from the frontend.
+    1. Receives image file, prompt, style, and the desired number of images (`n`) from the frontend.
     2. Customizes the prompt for OpenAI based on the input style.
-    3. Calls OpenAI's image `createEdit` endpoint with the image file, customized prompt, setting `model='gpt-image-1'`, `n=2`, `size='256x256'`, and `response_format='url'`. **(Note: This call does not include a mask parameter for explicit transparency control as per the current BFF endpoint definition).**
-    4. Receives temporary URLs for generated images from OpenAI.
-    5. Returns these temporary URLs to the frontend along with a task ID.
-    8. Status polling for this task is handled via the `/tasks/{task_id}/status` endpoint, which will query OpenAI's response status if the task ID corresponds to an OpenAI job.
+    3. Calls OpenAI's image `createEdit` endpoint with the image file, customized prompt, setting `model='gpt-image-1'`, the provided `n`, `size='1024x1024'` (Supported values: '1024x1024', '1024x1536', '1536x1024', 'auto'), and `response_format='b64_json'` (gpt-image-1 always returns b64_json).
+    4. Receives base64 encoded image data for the generated images from OpenAI.
+    5. Returns this base64 encoded image data to the frontend along with a task ID.
+    8. Status polling for this task is handled via the `/tasks/{task_id}/status` endpoint, which will query OpenAI's response status if the task ID corresponds to an OpenAI job (though for synchronous APIs like this, status is immediately completed).
 
 ### `POST /generate/text-to-model`
 
@@ -212,7 +213,7 @@ This section details how the BFF's generic endpoints map to the specific externa
 
 | BFF Endpoint                 | External Service | External API Endpoint/Method                 | Notes                                                                 |
 | :--------------------------- | :--------------- | :------------------------------------------- | :-------------------------------------------------------------------- |
-| `POST /generate/image-to-image`     | OpenAI           | Image Edit (`/v1/images/edits`)              | Uses `gpt-image-1`, `n=2`, `size=256x256`, `response_format=url`.     |
+| `POST /generate/image-to-image`     | OpenAI           | Image Edit (`/v1/images/edits`)              | Uses `gpt-image-1`, provided `n` (1-10, default 1), `size=1024x1024` (Supported values: '1024x1024', '1024x1536', '1536x1024', 'auto'), returns `b64_json`.     |
 | `POST /generate/text-to-model`     | Tripo AI         | Text to Model (`/v1/model/text-to-model`)    | Includes `texture` flag.                                          |
 | `POST /generate/image-to-model`     | Tripo AI         | Multi-view to Model (`/v1/model/img-to-model-multiview`)| Accepts image URLs or file data. Includes `texture` flag.       |
 | `POST /generate/sketch-to-model`     | Tripo AI         | Image to Model (`/v1/model/img-to-model`)    | Accepts sketch image URL or file data. Includes `texture` flag.    |

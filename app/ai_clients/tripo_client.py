@@ -2,12 +2,13 @@ import httpx
 from typing import Dict, Any, List, Optional
 import logging
 
-from ..config import settings
-from ..schemas.generation_schemas import (
+from app.config import settings
+from app.schemas.generation_schemas import (
     TextToModelRequest,
     ImageToModelRequest,
     SketchToModelRequest,
     RefineModelRequest,
+    SelectConceptRequest
 )
 
 logger = logging.getLogger(__name__)

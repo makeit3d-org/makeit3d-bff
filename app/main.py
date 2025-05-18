@@ -4,16 +4,11 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI
+from app.api import app # Import the FastAPI app instance from app.api
 
-from .routers import generation, models
-
-app = FastAPI()
-
-app.include_router(generation.router, prefix="/generate", tags=["generate"])
-app.include_router(models.router, prefix="", tags=["tasks"])
-
-@app.get("/")
-def read_root():
-    logger.info("Root endpoint accessed")
-    return {"Hello": "World"} 
+# Remove redundant router inclusion and root endpoint from here
+# app.include_router(...)
+# @app.get('/')
+# def read_root():
+#     logger.info("Root endpoint accessed")
+#     return {"Hello": "World"} 

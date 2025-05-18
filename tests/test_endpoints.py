@@ -3,6 +3,12 @@ import pytest
 import os
 import time
 import logging
+import base64 # Import base64 module
+import uuid # Import uuid for generating unique file names
+
+from app.schemas.generation_schemas import ImageToImageRequest
+# Import Supabase client functions
+from app.supabase_client import get_supabase_client, upload_image_to_storage, create_concept_image_record
 
 BASE_URL = "http://localhost:8000"
 OUTPUTS_DIR = "./tests/outputs"
@@ -35,12 +41,14 @@ async def download_file(url: str, test_name: str, file_suffix: str):
         pytest.fail(f"Error downloading file from {url}: {e}")
 
 # --- Helper function to poll task status ---
-async def poll_task_status(task_id: str, service: str):
+async def poll_task_status(task_id: str, service: str, poll_interval: int = 2, total_timeout: float = 300.0):
     status_url = f"{BASE_URL}/tasks/{task_id}/status?service={service.lower()}"
-    logger.info(f"Polling {service} task {task_id}...")
-    while True:
+    logger.info(f"Polling {service} task {task_id} with total timeout {total_timeout}s...")
+    start_time = time.time()
+    while time.time() - start_time < total_timeout:
         try:
-            async with httpx.AsyncClient() as client:
+            # Use a shorter timeout for individual polling requests
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 status_response = await client.get(status_url)
                 status_response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
                 status_data = status_response.json()
@@ -48,18 +56,23 @@ async def poll_task_status(task_id: str, service: str):
 
                 if status_data.get('status') == 'completed':
                     logger.info(f"Task {task_id} completed.")
-                    return status_data.get('result_url')
+                    # For OpenAI, result is image_data. For Tripo, it's result_url.
+                    # Return the entire status data for the test to handle.
+                    return status_data
                 elif status_data.get('status') == 'failed':
                     logger.error(f"Task {task_id} failed. Status data: {status_data}")
                     pytest.fail(f"{service.capitalize()} task {task_id} failed.")
 
-            time.sleep(2) # Poll every 2 seconds
+            time.sleep(poll_interval) # Poll every specified seconds
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error polling status for task ID {task_id} from service {service}: {e.response.status_code} - {e.response.text}", exc_info=True)
             pytest.fail(f"Failed to poll status for task {task_id} from {service}: {e.response.status_code}")
         except Exception as e:
             logger.error(f"Error polling status for task ID {task_id} from service {service}: {e}", exc_info=True)
             pytest.fail(f"Error polling status for task {task_id} from {service}: {e}")
+    
+    # If the loop finishes without completion, the total timeout was reached
+    pytest.fail(f"Polling for {service} task {task_id} timed out after {total_timeout} seconds.")
 
 # --- Test Endpoints ---
 
@@ -81,9 +94,9 @@ async def test_generate_image_to_image(request):
         image_filename = image_url.split("/")[-1] # Extract filename from URL
 
     files = {'image': (image_filename, image_content, 'image/jpeg')}
-    data = {'prompt': prompt, 'style': style}
+    data = {'prompt': prompt, 'style': style, 'n': 1}
 
-    logger.info(f"Calling {endpoint} with prompt='{prompt}', style='{style}' and image='{image_filename}'...")
+    logger.info(f"Calling {endpoint} with prompt=\'{prompt}\', style=\'{style}\', image=\'{image_filename}\' and n=1...")
     async with httpx.AsyncClient() as client:
         response = await client.post(endpoint, files=files, data=data)
         response.raise_for_status()
@@ -92,13 +105,33 @@ async def test_generate_image_to_image(request):
     logger.info(f"Received response: {result}")
 
     assert "task_id" in result
-    assert "image_urls" in result
-    assert isinstance(result["image_urls"], list)
-    assert len(result["image_urls"]) > 0
+    task_id = result["task_id"]
+    logger.info(f"Received OpenAI task_id: {task_id}")
 
-    # Download generated concept images
-    for i, url in enumerate(result["image_urls"]):
-        await download_file(url, request.node.name, f"concept_{i}.jpg") # Assuming jpg output for concepts
+    # Poll for task completion and get the result data
+    logger.info(f"Polling for completion of OpenAI task {task_id}...")
+    task_result_data = await poll_task_status(task_id, "openai", poll_interval=5, total_timeout=60.0) # Set a total timeout for OpenAI polling
+
+    # Assert task is completed and has image_urls in the result
+    assert task_result_data.get('status') == 'completed'
+    assert 'result' in task_result_data
+    assert 'image_urls' in task_result_data['result']
+    image_urls = task_result_data['result']['image_urls']
+
+    # Get the expected number of images from the request data
+    expected_n = data.get('n', 1) # Default to 1 if 'n' is not in data
+
+    assert isinstance(image_urls, list)
+    assert len(image_urls) == expected_n # Assert the number of URLs matches the requested n
+
+    # Download and save generated concept images from URLs
+    for i, image_url in enumerate(image_urls):
+        try:
+            # Download the image from the URL
+            await download_file(image_url, request.node.name, f"concept_{i}.png")
+        except Exception as e:
+            logger.error(f"Error downloading image from {image_url}: {e}", exc_info=True)
+            pytest.fail(f"Error downloading image from {image_url}: {e}")
 
 
 @pytest.mark.asyncio
@@ -124,7 +157,10 @@ async def test_generate_text_to_model(request):
     logger.info(f"Received Tripo AI task_id: {task_id}")
 
     # Poll for task completion and get result URL
-    model_url = await poll_task_status(task_id, "tripo")
+    model_url_data = await poll_task_status(task_id, "tripo", total_timeout=300.0) # Set a total timeout for Tripo polling
+
+    # Extract model_url from the result_url field
+    model_url = model_url_data.get('result_url')
 
     assert model_url is not None
     logger.info(f"Received model URL: {model_url}")
@@ -172,7 +208,10 @@ async def test_generate_from_concept(request):
     logger.info(f"Received Tripo AI task_id from concept: {task_id}")
 
     # Poll for task completion and get result URL
-    model_url = await poll_task_status(task_id, "tripo")
+    model_url_data = await poll_task_status(task_id, "tripo", total_timeout=300.0)
+
+    # Extract model_url from the result_url field
+    model_url = model_url_data.get('result_url')
 
     assert model_url is not None
     logger.info(f"Received model URL: {model_url}")
@@ -219,7 +258,10 @@ async def test_generate_image_to_model_texture(request):
     logger.info(f"Received Tripo AI task_id: {task_id}")
 
     # Poll for task completion and get result URL
-    model_url = await poll_task_status(task_id, "tripo")
+    model_url_data = await poll_task_status(task_id, "tripo", total_timeout=300.0)
+
+    # Extract model_url from the result_url field
+    model_url = model_url_data.get('result_url')
 
     assert model_url is not None
     logger.info(f"Received model URL: {model_url}")
@@ -266,7 +308,10 @@ async def test_generate_image_to_model_no_texture(request):
     logger.info(f"Received Tripo AI task_id: {task_id}")
 
     # Poll for task completion and get result URL
-    model_url = await poll_task_status(task_id, "tripo")
+    model_url_data = await poll_task_status(task_id, "tripo", total_timeout=300.0)
+
+    # Extract model_url from the result_url field
+    model_url = model_url_data.get('result_url')
 
     assert model_url is not None
     logger.info(f"Received model URL: {model_url}")
@@ -305,10 +350,84 @@ async def test_generate_sketch_to_model(request):
     logger.info(f"Received Tripo AI task_id: {task_id}")
 
     # Poll for task completion and get result URL
-    model_url = await poll_task_status(task_id, "tripo")
+    model_url_data = await poll_task_status(task_id, "tripo", total_timeout=300.0)
+
+    # Extract model_url from the result_url field
+    model_url = model_url_data.get('result_url')
 
     assert model_url is not None
     logger.info(f"Received model URL: {model_url}")
 
     # Download the generated model
-    await download_file(model_url, request.node.name, "model.glb") 
+    await download_file(model_url, request.node.name, "model.glb")
+
+
+@pytest.mark.asyncio
+async def test_supabase_upload_and_metadata(request):
+    """Simple test to upload an image to Supabase Storage and save metadata to the database."""
+    logger.info(f"Running {request.node.name}...")
+
+    # 1. Download a small public image
+    image_to_download_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//test-upload-image.png"
+    logger.info(f"Downloading image from {image_to_download_url} for Supabase test.")
+    async with httpx.AsyncClient() as client:
+        image_response = await client.get(image_to_download_url)
+        image_response.raise_for_status()
+        image_content = image_response.content
+
+    # 2. Upload the image to Supabase Storage
+    unique_file_name = f"test_uploads/{uuid.uuid4()}.png"
+    logger.info(f"Uploading image to Supabase Storage: {unique_file_name}")
+    uploaded_url = await upload_image_to_storage(unique_file_name, image_content)
+    logger.info(f"Image uploaded to: {uploaded_url}")
+
+    assert uploaded_url is not None
+    assert image_to_download_url.split('/makeit3d-public/')[-1] in uploaded_url # Basic check that the URL is in the expected format/location
+
+    # 3. Define metadata and save to the database
+    test_task_id = f"test-task-{uuid.uuid4()}"
+    test_prompt = "This is a test upload image."
+    test_style = "None"
+    logger.info(f"Saving metadata to database for task ID: {test_task_id}")
+
+    await create_concept_image_record(test_task_id, uploaded_url, test_prompt, test_style)
+    logger.info(f"Metadata record created.")
+
+    # 4. Retrieve the metadata from the database and verify
+    supabase = get_supabase_client()
+    logger.info(f"Retrieving metadata from database for task ID: {test_task_id}")
+    try:
+        response = supabase.table("concept_images").select("*").eq("task_id", test_task_id).execute()
+        logger.info(f"Database query response data: {response.data}")
+        logger.info(f"Database query response error: {response.error}")
+
+        assert response.error is None, f"Database query failed: {response.error}"
+        assert len(response.data) == 1, "Expected exactly one record for the task ID."
+
+        retrieved_record = response.data[0]
+
+        assert retrieved_record["task_id"] == test_task_id
+        assert retrieved_record["image_url"] == uploaded_url
+        assert retrieved_record["prompt"] == test_prompt
+        assert retrieved_record["style"] == test_style
+        # We could also check created_at is not None, but its value depends on the server time.
+
+        logger.info("Supabase upload and metadata test successful.")
+
+    except Exception as e:
+        logger.error(f"Error during database retrieval/verification: {e}", exc_info=True)
+        pytest.fail(f"Error during database retrieval/verification: {e}")
+
+    # Optional: Clean up the uploaded file and database record
+    # This is good practice for tests, but might add complexity. Skipping for now.
+    # try:
+    #     # Delete from storage
+    #     storage_delete_response = supabase.storage.from_("concept_images").remove([unique_file_name])
+    #     logger.info(f"Storage cleanup response: {storage_delete_response}")
+    #     # Delete from database
+    #     db_delete_response = supabase.table("concept_images").delete().eq("task_id", test_task_id).execute()
+    #     logger.info(f"Database cleanup response: {db_delete_response}")
+    # except Exception as cleanup_e:
+    #      logger.warning(f"Error during test cleanup: {cleanup_e}", exc_info=True)
+
+# Note: Add other tests here as needed 

@@ -1,11 +1,13 @@
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
+from typing_extensions import Annotated # Use typing_extensions for Annotated for broader compatibility
 
 # Schemas for generation endpoints
 
 class ImageToImageRequest(BaseModel):
     prompt: str
     style: Optional[str] = None
+    n: Annotated[Optional[int], Field(ge=1, le=10)] = 1 # Number of images to generate, between 1 and 10, default to 1
     # Note: Image file is handled via multipart/form-data directly in the endpoint, not in this schema
 
 class TextToModelRequest(BaseModel):
@@ -40,13 +42,26 @@ class TaskIdResponse(BaseModel):
 
 class ImageToImageResponse(BaseModel):
     task_id: str
-    image_urls: List[str] # Temporary URLs from OpenAI
+    # URLs of uploaded images in Supabase Storage
+    image_urls: List[str] # Now returning Supabase Storage URLs
 
 class TaskStatusResponse(BaseModel):
     status: str # e.g., pending, processing, completed, failed
     progress: Optional[float] = None # 0-100 for Tripo, None for OpenAI
     result_url: Optional[str] = None # Temporary URL for the generated asset
+    result: Optional[Dict[str, Any]] = None # Add an optional result field to hold varied results
     # May need additional fields depending on normalized status details
 
 class ErrorResponse(BaseModel):
-    detail: str 
+    detail: str
+
+# New schemas for OpenAI task results
+
+class OpenAIResult(BaseModel):
+    image_data: List[str]
+
+class OpenAICompletedTaskStatusResponse(BaseModel):
+    status: str = "completed"
+    progress: float = 100.0
+    result_url: Optional[str] = None # Not applicable for OpenAI concepts in this flow
+    result: OpenAIResult 

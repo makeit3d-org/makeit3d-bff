@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from .routers import generation, models # Import the new routers
+from app.routers import generation, models # Import the new routers using absolute path
 
 app = FastAPI()
 
