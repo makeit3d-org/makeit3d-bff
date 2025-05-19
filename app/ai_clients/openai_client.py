@@ -28,7 +28,7 @@ async def generate_image_to_image(image_file: bytes, filename: str, request_data
 
     logger.info(f"Calling OpenAI Image Edit API: {url}")
     try:
-        async with httpx.AsyncClient(timeout=40.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(url, headers=headers, files=files, data=data)
             response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
             logger.info(f"OpenAI Image Edit API response status: {response.status_code}")

@@ -79,6 +79,9 @@ async def poll_task_status(task_id: str, service: str, poll_interval: int = 2, t
 @pytest.mark.asyncio
 async def test_generate_image_to_image(request):
     """Test 1.1: /generate/image-to-image endpoint (OpenAI concepts)."""
+    start_time = time.time()
+    logger.info(f"TEST START: {start_time}")
+    
     endpoint = f"{BASE_URL}/generate/image-to-image"
     image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg"
     prompt = "Transform me into a toy action figure. Make it look like I am made out of plastic. Make sure to still make it look like me as much as possible. Include my whole body with no background, surroundings or detached objects."
@@ -92,15 +95,19 @@ async def test_generate_image_to_image(request):
         image_response.raise_for_status()
         image_content = image_response.content
         image_filename = image_url.split("/")[-1] # Extract filename from URL
+    
+    logger.info(f"INPUT IMAGE DOWNLOAD: {time.time() - start_time:.2f}s")
 
     files = {'image': (image_filename, image_content, 'image/jpeg')}
     data = {'prompt': prompt, 'style': style, 'n': 1}
 
     logger.info(f"Calling {endpoint} with prompt='{prompt}', style='{style}', image='{image_filename}' and n=1...")
     async with httpx.AsyncClient(timeout=60.0) as client:
+        api_call_start = time.time()
         response = await client.post(endpoint, files=files, data=data)
         response.raise_for_status()
         result = response.json()
+        logger.info(f"API RESPONSE TIME: {time.time() - api_call_start:.2f}s")
 
     logger.info(f"Received response: {result}")
 
@@ -110,7 +117,9 @@ async def test_generate_image_to_image(request):
 
     # Poll for task completion and get the result data
     logger.info(f"Polling for completion of OpenAI task {task_id}...")
+    polling_start = time.time()
     task_result_data = await poll_task_status(task_id, "openai", poll_interval=5, total_timeout=180.0) # Increased timeout
+    logger.info(f"TASK PROCESSING TIME (includes OpenAI generation + Supabase storage): {time.time() - polling_start:.2f}s")
 
     # Assert task is completed and has image_urls in the result
     assert task_result_data.get('status') == 'completed'
@@ -125,14 +134,20 @@ async def test_generate_image_to_image(request):
     assert len(image_urls) == expected_n # Assert the number of URLs matches the requested n
 
     # Download and save generated concept images from the BFF download endpoint URLs
+    download_start = time.time()
     for i, image_url in enumerate(image_urls):
         try:
             # The image_url is already the full URL pointing to our BFF download endpoint
             logger.info(f"Downloading image from BFF endpoint URL: {image_url}")
+            image_dl_start = time.time()
             await download_file(image_url, request.node.name, f"concept_{i}.png")
+            logger.info(f"IMAGE {i} DOWNLOAD TIME: {time.time() - image_dl_start:.2f}s")
         except Exception as e:
             logger.error(f"Error downloading image from BFF endpoint {image_url}: {e}", exc_info=True)
             pytest.fail(f"Error downloading image from BFF endpoint {image_url}: {e}")
+    
+    logger.info(f"TOTAL IMAGE DOWNLOAD TIME: {time.time() - download_start:.2f}s")
+    logger.info(f"TOTAL TEST TIME: {time.time() - start_time:.2f}s")
 
 
 @pytest.mark.asyncio
