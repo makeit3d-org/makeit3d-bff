@@ -1,5 +1,8 @@
 import logging
 import base64
+import inspect # Import inspect
+import asyncio # Import asyncio
+import httpx # Add httpx import for error handling
 
 from celery import Celery
 
@@ -13,8 +16,13 @@ from app.schemas.generation_schemas import (
     RefineModelRequest,
     SelectConceptRequest
 )
-# Import the new Supabase client functions
-from app.supabase_client import upload_image_to_storage, create_concept_image_record
+# Import the synchronous Supabase client functions and custom exceptions
+from app.supabase_client import (
+    sync_upload_image_to_storage, 
+    sync_create_concept_image_record,
+    SupabaseStorageError,
+    SupabaseDBError
+)
 # Import settings
 from app.config import settings
 
@@ -28,71 +36,108 @@ logger = logging.getLogger(__name__)
 # OPENAI_RATE_LIMIT = '10/m' # Keep commented out for now until we manage rate limits centrally
 TRIPO_RATE_LIMIT = '5/m' # Keep commented out for now until we manage rate limits centrally
 
+# Custom exception for Celery tasks to ensure serializable errors
+class CeleryTaskException(Exception):
+    pass
+
+# Convert task to non-async function that runs the async function via asyncio.run
 @celery_app.task(bind=True)
-async def generate_openai_image_task(self, image_bytes: bytes, image_filename: str, request_data_dict: dict):
+def generate_openai_image_task(self, image_bytes: bytes, image_filename: str, request_data_dict: dict):
     """Celery task to call OpenAI image generation API, upload to Supabase, and store metadata."""
-    logger.info(f"Celery task {self.request.id}: Starting OpenAI image generation and Supabase upload.")
-    uploaded_image_download_urls = []
     task_id = self.request.id
+    logger.info(f"Celery task {task_id}: Starting OpenAI image generation and Supabase upload.")
+    
+    # Define the async function that will be run
+    async def process_openai_image():
+        uploaded_image_download_urls = []
+        
+        try:
+            request_data = ImageToImageRequest(**request_data_dict)
 
-    try:
-        # Deserialize request data
-        request_data = ImageToImageRequest(**request_data_dict)
+            openai_response = await openai_client.generate_image_to_image(
+                image_bytes, image_filename, request_data
+            )
 
-        # --- OpenAI API Call ---
-        openai_response = openai_client.generate_image_to_image( # Use the async client function directly
-            image_bytes, image_filename, request_data
-        )
+            if inspect.iscoroutine(openai_response):
+                logger.error(f"Celery task {task_id}: DEBUG CHECK FAILED - openai_response IS A COROUTINE AFTER AWAIT!")
+                # This should not happen if openai_client.generate_image_to_image is correctly awaited and returns data
+                raise CeleryTaskException(f"Internal error: OpenAI response was a coroutine.")
 
-        # OpenAI returns a list of objects with 'b64_json' for gpt-image-1 edit
-        b64_images = [item["b64_json"] for item in openai_response.get("data", [])]
+            b64_images = [item["b64_json"] for item in openai_response.get("data", [])]
+            logger.info(f"Celery task {task_id}: OpenAI image generation completed, processing {len(b64_images)} images.")
 
-        logger.info(f"Celery task {task_id}: OpenAI image generation completed, processing {len(b64_images)} images.")
+            bucket_name = "concept-images"
+            for i, b64_image in enumerate(b64_images):
+                current_image_bytes = base64.b64decode(b64_image)
+                file_name_in_bucket = f"{task_id}/{i}.png"
 
-        # --- Supabase Upload and Database Record and URL Construction ---
-        bucket_name = "concept-images" # Define the bucket name
-        for i, b64_image in enumerate(b64_images):
-            try:
-                # Decode base64 to binary
-                image_data = base64.b64decode(b64_image)
-
-                # Generate a unique file name (e.g., task_id/image_index.png)
-                # Assuming PNG format from OpenAI, might need adjustment if different
-                file_name = f"{task_id}/{i}.png"
-
-                # Upload to Supabase Storage
-                file_path = await upload_image_to_storage(file_name, image_data, bucket_name)
+                # Upload to Supabase Storage using sync_upload_image_to_storage
+                # We're in an async function, so use asyncio.to_thread for sync operations
+                logger.info(f"Celery task {task_id}: Attempting to upload {file_name_in_bucket} to Supabase.")
+                file_path = await asyncio.to_thread(
+                    sync_upload_image_to_storage,
+                    file_name_in_bucket, 
+                    current_image_bytes, 
+                    bucket_name
+                )
                 logger.info(f"Celery task {task_id}: Uploaded image {i} to {bucket_name}/{file_path}")
 
-                # Construct the BFF download URL using settings
                 download_url = f"{settings.bff_base_url}/images/{bucket_name}/{file_path}"
                 uploaded_image_download_urls.append(download_url)
-                logger.info(f"Celery task {task_id}: Constructed download URL: {download_url}")
 
-                # Create database record using the download URL and bucket_name
-                prompt = request_data.prompt
-                style = request_data.style
-                await create_concept_image_record(task_id, download_url, bucket_name, prompt, style)
+                # Create database record using asyncio.to_thread
+                logger.info(f"Celery task {task_id}: Attempting to create DB record for {file_name_in_bucket}.")
+                await asyncio.to_thread(
+                    sync_create_concept_image_record,
+                    task_id, 
+                    download_url, 
+                    bucket_name, 
+                    request_data.prompt, 
+                    request_data.style
+                )
                 logger.info(f"Celery task {task_id}: Created database record for image {i}.")
 
-            except Exception as upload_e:
-                logger.error(f"Celery task {task_id}: Failed to process and upload image {i}: {upload_e}", exc_info=True)
-                # Decide how to handle partial failures - log and continue for now
-                pass
+            if not uploaded_image_download_urls:
+                raise CeleryTaskException("No images were successfully processed and uploaded after OpenAI generation.")
 
-        if not uploaded_image_download_urls:
-             # If no images were successfully uploaded, raise an error
-             raise Exception("No images were successfully processed and uploaded.")
+            logger.info(f"Celery task {task_id}: Finished processing and uploading images.")
+            return {'image_urls': uploaded_image_download_urls}
 
-        logger.info(f"Celery task {task_id}: Finished processing and uploading images.")
+        except httpx.HTTPStatusError as e_http:
+            err_msg = f"HTTP error during OpenAI call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
+            logger.error(f"Celery task {task_id}: {err_msg}", exc_info=True)
+            raise CeleryTaskException(err_msg) # Re-raise as a simple, serializable exception
 
-        # Return the list of BFF download URLs
-        # The result will be picked up by the /tasks/{task_id}/status endpoint
-        return {'image_urls': uploaded_image_download_urls}
-
+        except (SupabaseStorageError, SupabaseDBError) as e_supabase:
+            err_msg = f"Supabase client error: {type(e_supabase).__name__} - {str(e_supabase)}"
+            logger.error(f"Celery task {task_id}: {err_msg}", exc_info=True)
+            raise CeleryTaskException(err_msg)
+            
+        except Exception as e_unhandled:
+            err_msg = f"Unexpected error in OpenAI task: {type(e_unhandled).__name__} - {str(e_unhandled)}"
+            logger.error(f"Celery task {task_id}: {err_msg}", exc_info=True)
+            # Check if the unhandled exception or its arguments contain a coroutine for debugging
+            if inspect.iscoroutine(e_unhandled) or any(inspect.iscoroutine(arg) for arg in e_unhandled.args if arg is not None):
+                logger.error(f"Celery task {task_id}: The unhandled exception or its args contained a coroutine: {e_unhandled}")
+                # Ensure the message is simple if it was a coroutine itself
+                if inspect.iscoroutine(e_unhandled):
+                    err_msg = f"Unexpected error in OpenAI task: Unhandled exception was a coroutine object."
+            raise CeleryTaskException(err_msg)
+            
+    # Use a synchronous try/except block to handle any issues with the async function
+    try:
+        # Create a new event loop for this task to avoid conflicts with Celery's event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(process_openai_image())
+        finally:
+            loop.close()
     except Exception as e:
-        logger.error(f"Celery task {task_id}: OpenAI task failed: {e}", exc_info=True)
-        raise self.retry(exc=e, countdown=5, max_retries=3)
+        # Handle any exceptions from running the async function
+        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
+        # Don't use self.retry as it might cause serialization issues with coroutines
+        raise CeleryTaskException(f"Error running OpenAI task: {str(e)}")
 
 @celery_app.task(bind=True, rate_limit=TRIPO_RATE_LIMIT)
 def generate_tripo_text_to_model_task(self, request_data_dict: dict):

@@ -96,8 +96,8 @@ async def test_generate_image_to_image(request):
     files = {'image': (image_filename, image_content, 'image/jpeg')}
     data = {'prompt': prompt, 'style': style, 'n': 1}
 
-    logger.info(f"Calling {endpoint} with prompt=\'{prompt}\', style=\'{style}\', image=\'{image_filename}\' and n=1...")
-    async with httpx.AsyncClient() as client:
+    logger.info(f"Calling {endpoint} with prompt='{prompt}', style='{style}', image='{image_filename}' and n=1...")
+    async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(endpoint, files=files, data=data)
         response.raise_for_status()
         result = response.json()
@@ -110,7 +110,7 @@ async def test_generate_image_to_image(request):
 
     # Poll for task completion and get the result data
     logger.info(f"Polling for completion of OpenAI task {task_id}...")
-    task_result_data = await poll_task_status(task_id, "openai", poll_interval=5, total_timeout=60.0) # Set a total timeout for OpenAI polling
+    task_result_data = await poll_task_status(task_id, "openai", poll_interval=5, total_timeout=180.0) # Increased timeout
 
     # Assert task is completed and has image_urls in the result
     assert task_result_data.get('status') == 'completed'

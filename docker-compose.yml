@@ -25,7 +25,11 @@ services:
       # In a real scenario, use a proper secrets management solution
       - TRIPO_API_KEY=${TRIPO_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - REDIS_URL=redis://redis:6379/0 # Redis service name as hostname
+      - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
     depends_on:
       - redis
 
@@ -41,7 +45,11 @@ services:
       # Pass environment variables to the celery worker service
       - TRIPO_API_KEY=${TRIPO_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - REDIS_URL=redis://redis:6379/0 # Redis service name as hostname
+      - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
     depends_on:
       - redis
 

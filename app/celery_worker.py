@@ -1,6 +1,9 @@
 from celery import Celery
 from app.config import settings
 
+# Explicitly import task modules
+# from app.tasks import generation_tasks # Removed to break circular import
+
 # Configure Celery
 celery_app = Celery(
     "makeit3d_bff",
@@ -19,5 +22,10 @@ celery_app.conf.accept_content = ['json']
 celery_app.conf.worker_prefetch_multiplier = 1
 celery_app.conf.task_acks_late = True
 
-# Auto-discover tasks in the 'tasks' module (we will create this next)
-# celery_app.autodiscover_tasks(['app.tasks']) 
+# Explicitly import task modules AFTER celery_app is defined
+# This ensures tasks are registered with the 'celery_app' instance.
+from app.tasks import generation_tasks
+
+# autodiscover_tasks might now be redundant if tasks are explicitly imported this way,
+# but can be left for robustness or if other task modules are added later without explicit imports.
+celery_app.autodiscover_tasks(['app.tasks']) # Uncommented to ensure tasks are found 
