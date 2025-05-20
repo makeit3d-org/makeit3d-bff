@@ -138,6 +138,10 @@ The app handles user authentication (e.g., Clerk) and is designed for intuitive 
 ## 6. Technical Considerations
 
 *   **Focus**: Ensuring the BFF handles all AI generation calls reliably.
+*   **API Rate Limiting & Client Behavior**: The frontend application MUST gracefully handle HTTP `429 Too Many Requests` errors received from the BFF. When a 429 error is received, the app should:
+    *   Read the `Retry-After` header (typically in seconds) from the response.
+    *   Inform the user that the service is temporarily busy and to try again after the indicated time (e.g., "App is busy, please try again in X seconds.").
+    *   Disable the relevant generation button(s) or input fields for the duration specified in `Retry-After` to prevent immediate re-submission. A default retry delay (e.g., 60 seconds) can be used if the `Retry-After` header is unexpectedly missing, though the header should be prioritized.
 *   **Performance on Mobile**: Efficiently handling GLB display.
 *   **API Key Security**: BFF is critical for Tripo AI & OpenAI keys.
 *   **Asynchronous Communication**: For all backend (BFF) calls.

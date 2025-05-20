@@ -7,5 +7,8 @@ pytest==8.2.0
 pytest-asyncio==0.23.7
 celery==5.4.0
 redis==5.0.4
+fastapi-limiter[redis]>=0.1.6
 supabase
-eventlet 
+eventlet
+flower
+slowapi 

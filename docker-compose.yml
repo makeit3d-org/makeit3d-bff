@@ -33,22 +33,59 @@ services:
     depends_on:
       - redis
 
-  celery_worker:
+  celery_worker_default:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: makeit3d-bff-celery_worker
-    command: celery -A app.celery_worker worker -l info -P eventlet -c 1 # Use eventlet for async tasks
+    container_name: makeit3d-bff-celery_default_worker
+    command: celery -A app.celery_worker worker -l info -P eventlet -c 1 -Q default
     volumes:
-      - .:/app  # Mount the current directory to /app for code changes
+      - .:/app
     environment:
-      # Pass environment variables to the celery worker service
       - TRIPO_API_KEY=${TRIPO_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - DATABASE_URL=${DATABASE_URL}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-      - REDIS_URL=redis://redis:6379/0 # Redis service name as hostname
+      - REDIS_URL=redis://redis:6379/0
+      - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
+    depends_on:
+      - redis
+
+  celery_worker_tripo_other:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: makeit3d-bff-celery_tripo_other_worker
+    command: celery -A app.celery_worker worker -l info -P eventlet -c 10 -Q tripo_other_queue
+    volumes:
+      - .:/app
+    environment:
+      - TRIPO_API_KEY=${TRIPO_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
+    depends_on:
+      - redis
+
+  celery_worker_tripo_refine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: makeit3d-bff-celery_tripo_refine_worker
+    command: celery -A app.celery_worker worker -l info -P eventlet -c 5 -Q tripo_refine_queue
+    volumes:
+      - .:/app
+    environment:
+      - TRIPO_API_KEY=${TRIPO_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - REDIS_URL=redis://redis:6379/0
       - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
     depends_on:
       - redis

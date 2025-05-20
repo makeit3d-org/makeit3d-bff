@@ -34,14 +34,14 @@ logger = logging.getLogger(__name__)
 # Define approximate rate limits (replace with official rates when known)
 # Example: 10 requests per minute for OpenAI, 5 requests per minute for Tripo
 # OPENAI_RATE_LIMIT = '10/m' # Keep commented out for now until we manage rate limits centrally
-TRIPO_RATE_LIMIT = '5/m' # Keep commented out for now until we manage rate limits centrally
+# TRIPO_RATE_LIMIT = '5/m' # Keep commented out for now until we manage rate limits centrally -> REMOVED
 
 # Custom exception for Celery tasks to ensure serializable errors
 class CeleryTaskException(Exception):
     pass
 
 # Convert task to non-async function that runs the async function via asyncio.run
-@celery_app.task(bind=True)
+@celery_app.task(bind=True, rate_limit=settings.CELERY_OPENAI_TASK_RATE_LIMIT)
 def generate_openai_image_task(self, image_bytes: bytes, image_filename: str, request_data_dict: dict):
     """Celery task to call OpenAI image generation API, upload to Supabase, and store metadata."""
     task_id = self.request.id
@@ -139,76 +139,161 @@ def generate_openai_image_task(self, image_bytes: bytes, image_filename: str, re
         # Don't use self.retry as it might cause serialization issues with coroutines
         raise CeleryTaskException(f"Error running OpenAI task: {str(e)}")
 
-@celery_app.task(bind=True, rate_limit=TRIPO_RATE_LIMIT)
+@celery_app.task(bind=True)
 def generate_tripo_text_to_model_task(self, request_data_dict: dict):
     """Celery task to call Tripo AI text-to-model endpoint."""
-    logger.info(f"Celery task {self.request.id}: Starting Tripo AI text-to-model.")
+    task_id = self.request.id
+    logger.info(f"Celery task {task_id}: Starting Tripo AI text-to-model.")
+    
+    # Define the async function that will be run
+    async def process_tripo_request():
+        try:
+            request_data = TextToModelRequest(**request_data_dict)
+            # Add await here to properly handle the coroutine
+            tripo_response = await tripo_client.generate_text_to_model(request_data)
+            task_id = tripo_response["data"]["task_id"]
+            logger.info(f"Celery task {self.request.id}: Initiated Tripo AI text-to-model task with ID: {task_id}")
+            # Return the Tripo task ID. The status endpoint will poll Tripo directly.
+            return {'tripo_task_id': task_id}
+        except Exception as e:
+            logger.error(f"Celery task {self.request.id}: Tripo AI text-to-model failed: {e}", exc_info=True)
+            raise e
+    
     try:
-        request_data = TextToModelRequest(**request_data_dict)
-        tripo_response = tripo_client.generate_text_to_model(request_data)
-        task_id = tripo_response["data"]["task_id"]
-        logger.info(f"Celery task {self.request.id}: Initiated Tripo AI text-to-model task with ID: {task_id}")
-        # Return the Tripo task ID. The status endpoint will poll Tripo directly.
-        return {'tripo_task_id': task_id}
+        # Create a new event loop for this task to avoid conflicts with Celery's event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(process_tripo_request())
+        finally:
+            loop.close()
     except Exception as e:
-        logger.error(f"Celery task {self.request.id}: Tripo AI text-to-model failed: {e}", exc_info=True)
+        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
         raise self.retry(exc=e, countdown=5, max_retries=3)
 
-@celery_app.task(bind=True, rate_limit=TRIPO_RATE_LIMIT)
+@celery_app.task(bind=True)
 def generate_tripo_image_to_model_task(self, request_data_dict: dict):
     """Celery task to call Tripo AI multiview-to-model endpoint."""
-    logger.info(f"Celery task {self.request.id}: Starting Tripo AI image-to-model (multiview).")
+    task_id = self.request.id
+    logger.info(f"Celery task {task_id}: Starting Tripo AI image-to-model (multiview).")
+    
+    # Define the async function that will be run
+    async def process_tripo_request():
+        try:
+            request_data = ImageToModelRequest(**request_data_dict)
+            # Add await here to properly handle the coroutine
+            tripo_response = await tripo_client.generate_image_to_model(request_data)
+            task_id = tripo_response["data"]["task_id"]
+            logger.info(f"Celery task {self.request.id}: Initiated Tripo AI image-to-model (multiview) task with ID: {task_id}")
+            return {'tripo_task_id': task_id}
+        except Exception as e:
+            logger.error(f"Celery task {self.request.id}: Tripo AI image-to-model (multiview) failed: {e}", exc_info=True)
+            raise e
+    
     try:
-        request_data = ImageToModelRequest(**request_data_dict)
-        tripo_response = tripo_client.generate_image_to_model(request_data)
-        task_id = tripo_response["data"]["task_id"]
-        logger.info(f"Celery task {self.request.id}: Initiated Tripo AI image-to-model (multiview) task with ID: {task_id}")
-        return {'tripo_task_id': task_id}
+        # Create a new event loop for this task to avoid conflicts with Celery's event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(process_tripo_request())
+        finally:
+            loop.close()
     except Exception as e:
-        logger.error(f"Celery task {self.request.id}: Tripo AI image-to-model (multiview) failed: {e}", exc_info=True)
+        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
         raise self.retry(exc=e, countdown=5, max_retries=3)
 
-@celery_app.task(bind=True, rate_limit=TRIPO_RATE_LIMIT)
+@celery_app.task(bind=True)
 def generate_tripo_sketch_to_model_task(self, request_data_dict: dict):
     """Celery task to call Tripo AI image-to-model endpoint (for sketches)."""
-    logger.info(f"Celery task {self.request.id}: Starting Tripo AI sketch-to-model.")
+    task_id = self.request.id
+    logger.info(f"Celery task {task_id}: Starting Tripo AI sketch-to-model.")
+    
+    # Define the async function that will be run
+    async def process_tripo_request():
+        try:
+            request_data = SketchToModelRequest(**request_data_dict)
+            # Add await here to properly handle the coroutine
+            tripo_response = await tripo_client.generate_sketch_to_model(request_data)
+            task_id = tripo_response["data"]["task_id"]
+            logger.info(f"Celery task {self.request.id}: Initiated Tripo AI sketch-to-model task with ID: {task_id}")
+            return {'tripo_task_id': task_id}
+        except Exception as e:
+            logger.error(f"Celery task {self.request.id}: Tripo AI sketch-to-model failed: {e}", exc_info=True)
+            raise e
+    
     try:
-        request_data = SketchToModelRequest(**request_data_dict)
-        tripo_response = tripo_client.generate_sketch_to_model(request_data)
-        task_id = tripo_response["data"]["task_id"]
-        logger.info(f"Celery task {self.request.id}: Initiated Tripo AI sketch-to-model task with ID: {task_id}")
-        return {'tripo_task_id': task_id}
+        # Create a new event loop for this task to avoid conflicts with Celery's event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(process_tripo_request())
+        finally:
+            loop.close()
     except Exception as e:
-        logger.error(f"Celery task {self.request.id}: Tripo AI sketch-to-model failed: {e}", exc_info=True)
+        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
         raise self.retry(exc=e, countdown=5, max_retries=3)
 
-@celery_app.task(bind=True, rate_limit=TRIPO_RATE_LIMIT)
+@celery_app.task(bind=True)
 def generate_tripo_refine_model_task(self, request_data_dict: dict):
     """Celery task to call Tripo AI refine-model endpoint."""
-    logger.info(f"Celery task {self.request.id}: Starting Tripo AI refine-model.")
+    task_id = self.request.id
+    logger.info(f"Celery task {task_id}: Starting Tripo AI refine-model.")
+    
+    # Define the async function that will be run
+    async def process_tripo_request():
+        try:
+            request_data = RefineModelRequest(**request_data_dict)
+            # Add await here to properly handle the coroutine
+            tripo_response = await tripo_client.refine_model(request_data)
+            task_id = tripo_response["data"]["task_id"]
+            logger.info(f"Celery task {self.request.id}: Initiated Tripo AI refine-model task with ID: {task_id}")
+            return {'tripo_task_id': task_id}
+        except Exception as e:
+            logger.error(f"Celery task {self.request.id}: Tripo AI refine-model failed: {e}", exc_info=True)
+            raise e
+    
     try:
-        request_data = RefineModelRequest(**request_data_dict)
-        tripo_response = tripo_client.refine_model(request_data)
-        task_id = tripo_response["data"]["task_id"]
-        logger.info(f"Celery task {self.request.id}: Initiated Tripo AI refine-model task with ID: {task_id}")
-        return {'tripo_task_id': task_id}
+        # Create a new event loop for this task to avoid conflicts with Celery's event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(process_tripo_request())
+        finally:
+            loop.close()
     except Exception as e:
-        logger.error(f"Celery task {self.request.id}: Tripo AI refine-model failed: {e}", exc_info=True)
+        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
         raise self.retry(exc=e, countdown=5, max_retries=3)
 
-@celery_app.task(bind=True, rate_limit=TRIPO_RATE_LIMIT)
+@celery_app.task(bind=True)
 def generate_tripo_select_concept_task(self, request_data_dict: dict):
     """Celery task to handle selection of a concept and initiate Tripo 3D generation."""
-    logger.info(f"Celery task {self.request.id}: Starting Tripo AI from selected concept.")
+    task_id = self.request.id
+    logger.info(f"Celery task {task_id}: Starting Tripo AI from selected concept.")
+    
+    # Define the async function that will be run
+    async def process_tripo_request():
+        try:
+            request_data = SelectConceptRequest(**request_data_dict)
+            # This calls the sketch-to-model client function, as it expects a single image URL
+            # Add await here to properly handle the coroutine
+            tripo_response = await tripo_client.generate_sketch_to_model(request_data)
+            task_id = tripo_response["data"]["task_id"]
+            logger.info(f"Celery task {self.request.id}: Initiated Tripo AI task from concept with ID: {task_id}")
+            return {'tripo_task_id': task_id}
+        except Exception as e:
+            logger.error(f"Celery task {self.request.id}: Tripo AI from concept failed: {e}", exc_info=True)
+            raise e
+    
     try:
-        request_data = SelectConceptRequest(**request_data_dict)
-        # This calls the sketch-to-model client function, as it expects a single image URL
-        tripo_response = tripo_client.generate_sketch_to_model(request_data)
-        task_id = tripo_response["data"]["task_id"]
-        logger.info(f"Celery task {self.request.id}: Initiated Tripo AI task from concept with ID: {task_id}")
-        return {'tripo_task_id': task_id}
+        # Create a new event loop for this task to avoid conflicts with Celery's event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(process_tripo_request())
+        finally:
+            loop.close()
     except Exception as e:
-        logger.error(f"Celery task {self.request.id}: Tripo AI from concept failed: {e}", exc_info=True)
+        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
         raise self.retry(exc=e, countdown=5, max_retries=3)
 
 # Note: The following tasks for polling status are now handled directly by the router

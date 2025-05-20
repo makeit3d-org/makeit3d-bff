@@ -1,108 +1,152 @@
-# BFF Local Tests
+# MakeIt3D Backend Testing
 
-This directory contains basic tests for the makeit3d BFF service endpoints. These tests are designed to be run against a locally running instance of the BFF.
+This directory contains tests for the MakeIt3D Backend For Frontend (BFF) service.
 
-## Prerequisites
+## Running Tests
 
-*   Docker and Docker Compose installed and running on your machine.
-*   Python 3.7+ and `pip` installed.
-*   A local Python virtual environment (`.venv` recommended), created with a supported Python version (3.10, 3.11, or 3.12).
-*   Access to your Tripo AI, OpenAI, and Supabase API keys, and Supabase URL, configured as environment variables in a `.env` file in the root directory (`.env` is already in `.gitignore`).
+The `makeit3d-bff` project provides two convenient ways to run tests:
 
-## Setup
+### 1. Bash Script Runner
 
-1.  **Navigate to the BFF root directory:**
-    ```bash
-    cd /path/to/your/makeit3d-bff
-    ```
-    (Replace `/path/to/your/makeit3d-bff` with the actual path to your project).
+For basic test execution, you can use the Bash script:
 
-2.  **Load your Python virtual environment:**
-    ```bash
-    source .venv/bin/activate
-    ```
-    (If you don't have a virtual environment, create one using a supported Python version like 3.10, 3.11, or 3.12 with `python3.x -m venv .venv` and then activate it. Replace `python3.x` with your desired supported version command).
+```bash
+# Run all tests with default settings
+./tests/run_tests.sh
 
-3.  **Install test and application dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+# Run a specific test file
+./tests/run_tests.sh tests/test_endpoints.py
 
-4.  **Ensure your `.env` file is configured:**
-    Create a `.env` file in the root directory of the project if you haven't already, and add your API keys and Supabase details. For local testing, include:
-    ```
-    TRIPO_API_KEY=your_tripo_api_key
-    OPENAI_API_KEY=your_openai_api_key
-    SUPABASE_URL=your_supabase_url
-    SUPABASE_SERVICE_KEY=your_supabase_service_key
-    BFF_BASE_URL="http://localhost:8000"
-    ```
-    Replace the placeholder values with your actual credentials.
+# Run with logs enabled
+./tests/run_tests.sh -s
 
-5.  **Update test placeholders:**
-    Edit the `tests/test_endpoints.py` file.
-    *   Replace placeholder image URLs (`https://example.com/...`) with actual publicly accessible image URLs for the `test_generate_image_to_model` and `test_generate_sketch_to_model` tests.
-    *   Replace `YOUR_DRAFT_TASK_ID` in `test_generate_refine_model` with a task ID from a successfully generated *draft* model.
-    *   Replace `YOUR_CONCEPT_IMAGE_URL` and `YOUR_CONCEPT_TASK_ID` in `test_generate_select_concept` with the URL and task ID from a successful `test_generate_image_to_image` run.
-    *   Replace `YOUR_TRIPO_TASK_ID` in `test_get_task_status_tripo` with a task ID from any successful Tripo generation test.
-    *   Replace `YOUR_OPENAI_TASK_ID` in `test_get_task_status_openai` with the dummy task ID returned by `test_generate_image_to_image` (or a real one if applicable in the future).
+# Run with verbose output
+./tests/run_tests.sh -v
 
-## Running the BFF Locally (Choose One)
+# Run a specific test with logs
+./tests/run_tests.sh tests/test_endpoints.py::test_generate_image_to_image -s
+```
 
-You need the BFF server and Celery worker running locally to execute the tests against. Choose one of the following options:
+### 2. Python Script Runner (More Advanced)
 
-### Option 1: Using Docker Compose (Recommended for Development)
+For more advanced test options, use the Python runner:
 
-This option uses Docker Compose to orchestrate the FastAPI backend, Celery worker, and Redis. The configuration in `docker-compose.yml` includes volume mounts, allowing for live code editing without rebuilding images.
+```bash
+# Run all tests
+./tests/run_tests.py
 
-1.  **Build and run the services:**
-    In the BFF root directory, run:
-    ```bash
-    docker-compose up --build
-    ```
-    The `--build` flag ensures images are built if they don't exist or if there are changes to the Dockerfile or context. Omit `--build` on subsequent runs if you haven't changed the Dockerfile or dependencies.
+# List all available tests
+./tests/run_tests.py -l
 
-    This command will start Redis, the Celery worker, and the FastAPI backend. The backend will be accessible at `http://localhost:8000`.
+# Run a specific test
+./tests/run_tests.py -t test_generate_image_to_image
 
-    Keep this terminal open. To stop the services later, press `Ctrl+C`.
+# Run with logs enabled
+./tests/run_tests.py -s
 
-### Option 2: Using Uvicorn and Celery (Direct Python Execution)
+# Run with verbose output and fail fast
+./tests/run_tests.py -v -f
 
-This option runs the BFF components directly in your local Python environment. You will need separate terminal windows for Uvicorn and the Celery worker.
+# Run a specific test file with logs
+./tests/run_tests.py path/to/test.py -s
+```
 
-1.  **Ensure your virtual environment is activated** in two separate terminal windows.
+## List Available Tests
 
-2.  **Run the FastAPI application in the first terminal:**
-    ```bash
-    uvicorn app.main:app --reload
-    ```
-    This will start the server, accessible at `http://127.0.0.1:8000`. The `--reload` flag provides hot-reloading.
+To see all available tests in the project, use:
 
-3.  **Run the Celery worker in the second terminal:**
-    ```bash
-    celery -A app.celery_worker worker -l info -P eventlet -c 1
-    ```
-    This starts the worker that will process background tasks.
+```bash
+# List all tests in the default file (tests/test_endpoints.py)
+./tests/run_tests.py -l
 
-    Keep both terminals open and running.
+# List tests in a specific file
+./tests/run_tests.py tests/other_test_file.py -l
+```
 
-## Running the Tests
+This will display a numbered list of all test functions, making it easy to:
+1. See what tests are available to run
+2. Copy test names for running specific tests
+3. Understand the test coverage
 
-Open a **new terminal** window (a third one if using Option 2), navigate to the BFF root directory (`/path/to/your/makeit3d-bff`), and activate your virtual environment (`source .venv/bin/activate`). Ensure the BFF services (backend and worker) are running using either the Docker Compose or Uvicorn/Celery method described above.
+Example output:
+```
+Available tests in tests/test_endpoints.py:
+  1. test_generate_image_to_image
+  2. test_generate_text_to_model
+  3. test_generate_from_concept
+  4. test_generate_image_to_model_texture
+  5. test_generate_image_to_model_no_texture
+  6. test_generate_sketch_to_model
+  7. test_supabase_upload_and_metadata
+```
 
-Then, use the `pytest` command to run the tests:
+### Manual Method (using docker-compose directly)
 
-*   **Run all tests in the `tests/` directory:**
-    ```bash
-    pytest
-    ```
-*   **Run all tests in a specific file (e.g., `test_endpoints.py`):**
-    ```bash
-    pytest tests/test_endpoints.py
-    ```
-*   **Run a specific test function within a file (e.g., `test_generate_image_to_image` in `test_endpoints.py`):**
-    ```bash
-    pytest tests/test_endpoints.py::test_generate_image_to_image
-    ```
+You can also run tests manually using docker-compose:
 
-Pytest will execute the specified tests. Watch the output for test progress and results. Any generated files (images or models) from successful tests will be downloaded to the `./tests/outputs/` directory. 
+```bash
+# Run all tests
+docker-compose exec backend pytest tests/test_endpoints.py
+
+# Run with logs enabled
+docker-compose exec backend pytest tests/test_endpoints.py -s --log-cli-level=INFO
+
+# Run a specific test
+docker-compose exec backend pytest tests/test_endpoints.py::test_generate_image_to_image
+
+# List available tests (collect only)
+docker-compose exec backend pytest tests/test_endpoints.py --collect-only
+```
+
+## Test Structure
+
+The tests in this project are organized as follows:
+
+- **Unit Tests**: Test individual functions and components in isolation
+- **Integration Tests**: Test the interaction between different components
+- **End-to-End Tests**: Test the entire flow from API request to response
+
+## Test Environment
+
+The tests run inside the Docker container to ensure consistent execution environment. This means:
+
+1. All dependencies are pre-installed in the container
+2. The tests can access other services in the Docker network
+3. Environment variables are properly set
+
+## Test Timing Logs
+
+Many of the tests include detailed timing logs to help diagnose performance issues. These logs measure:
+
+- API response time
+- Image download time
+- Task processing time
+- Total test execution time
+
+To view these logs, run the tests with the `-s` flag (show logs).
+
+## Adding New Tests
+
+When adding new tests, follow these guidelines:
+
+1. Use the existing test structure as a template
+2. Include appropriate logging
+3. Add timing measurements for performance-critical sections
+4. Handle errors and clean up test resources
+5. Document any special setup or teardown requirements
+
+## Required Services
+
+The tests require the following services to be running:
+
+- Redis (for task queue and results)
+- Backend FastAPI Service
+- Celery Worker
+
+These are all started automatically when you run `docker-compose up`.
+
+## Environment Variables
+
+The tests use the same environment variables as the main application. These are passed to the Docker containers via the `docker-compose.yml` file.
+
+If you're running tests locally (not recommended), you'll need to set these variables yourself. 

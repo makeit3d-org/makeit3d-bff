@@ -1,5 +1,5 @@
 import httpx
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Request
 from typing import List, Optional
 import logging
 # import uuid # Removed as Celery will generate task IDs
@@ -23,6 +23,7 @@ from app.ai_clients import openai_client
 from app.supabase_client import upload_image_to_storage, create_concept_image_record
 from app.config import settings # Import settings
 from app.sync_state import sync_task_results # Import the synchronous task results store from the new module
+from app.limiter import limiter # Import the limiter
 
 # from app.routers.models import task_store # Removed in-memory store
 # Removed import of app.routers.models to break circular dependency
@@ -43,7 +44,9 @@ router = APIRouter()
 # Removed run_openai_image_task as it's now a Celery task
 
 @router.post("/image-to-image", response_model=TaskIdResponse)
+@limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
 async def generate_image_to_image_endpoint(
+    request: Request,
     image: UploadFile = File(...),
     prompt: str = Form(...),
     style: Optional[str] = Form(None),
@@ -134,7 +137,8 @@ async def generate_image_to_image_endpoint(
         return TaskIdResponse(task_id=task.id)
 
 @router.post("/text-to-model", response_model=TaskIdResponse)
-async def generate_text_to_model_endpoint(request_data: TextToModelRequest):
+@limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
+async def generate_text_to_model_endpoint(request: Request, request_data: TextToModelRequest):
     """Initiates 3D model generation from text using Tripo AI."""
     logger.info("Received request for /generate/text-to-model")
     # Send task to Celery and return the task ID
@@ -144,7 +148,8 @@ async def generate_text_to_model_endpoint(request_data: TextToModelRequest):
     return TaskIdResponse(task_id=task.id)
 
 @router.post("/image-to-model", response_model=TaskIdResponse)
-async def generate_image_to_model_endpoint(request_data: ImageToModelRequest):
+@limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
+async def generate_image_to_model_endpoint(request: Request, request_data: ImageToModelRequest):
     """Initiates 3D model generation from multiple images (multiview) using Tripo AI."""
     logger.info("Received request for /generate/image-to-model (multiview)")
     # Send task to Celery and return the task ID
@@ -154,7 +159,8 @@ async def generate_image_to_model_endpoint(request_data: ImageToModelRequest):
     return TaskIdResponse(task_id=task.id)
 
 @router.post("/sketch-to-model", response_model=TaskIdResponse)
-async def generate_sketch_to_model_endpoint(request_data: SketchToModelRequest):
+@limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
+async def generate_sketch_to_model_endpoint(request: Request, request_data: SketchToModelRequest):
     """Initiates 3D model generation from a single sketch image using Tripo AI."""
     logger.info("Received request for /generate/sketch-to-model")
     # Send task to Celery and return the task ID
@@ -164,7 +170,8 @@ async def generate_sketch_to_model_endpoint(request_data: SketchToModelRequest):
     return TaskIdResponse(task_id=task.id)
 
 @router.post("/refine-model", response_model=TaskIdResponse)
-async def refine_model_endpoint(request_data: RefineModelRequest):
+@limiter.limit(f"{settings.BFF_TRIPO_REFINE_REQUESTS_PER_MINUTE}/minute")
+async def refine_model_endpoint(request: Request, request_data: RefineModelRequest):
     """Initiates refinement of a 3D model using Tripo AI."""
     logger.info("Received request for /generate/refine-model")
     # Send task to Celery and return the task ID
@@ -174,7 +181,8 @@ async def refine_model_endpoint(request_data: RefineModelRequest):
     return TaskIdResponse(task_id=task.id)
 
 @router.post("/select-concept", response_model=TaskIdResponse)
-async def select_concept_endpoint(request_data: SelectConceptRequest):
+@limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
+async def select_concept_endpoint(request: Request, request_data: SelectConceptRequest):
     """Handles selection of a 2D concept and initiates 3D generation from it using Tripo AI."""
     logger.info("Received request for /generate/select-concept")
     # Send task to Celery and return the task ID

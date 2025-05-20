@@ -133,6 +133,20 @@ This document describes the architecture for the Backend-for-Frontend (BFF) serv
 | Docker       | Containerization for deployment                                 |
 | Railway      | Cloud deployment platform (or similar)                           |
 
+## Rate Limiting
+
+The BFF implements per-client rate limiting on its API endpoints to ensure fair usage and protect backend services. These limits are configurable and enforced by `fastapi-limiter`.
+
+- **OpenAI Endpoints (e.g., `/generate/image-to-image`):** Configured via `BFF_OPENAI_REQUESTS_PER_MINUTE` (e.g., 4 requests/minute/client).
+  - *Reference OpenAI Limits:* [OpenAI Platform Limits](https://platform.openai.com/settings/organization/limits)
+- **Tripo Refine Endpoint (e.g., `/generate/refine-model`):** Configured via `BFF_TRIPO_REFINE_REQUESTS_PER_MINUTE` (e.g., 6 requests/minute/client).
+- **Other Tripo Endpoints (e.g., `/generate/text-to-model`):** Configured via `BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE` (e.g., 12 requests/minute/client).
+  - *Reference Tripo Limits:* [Tripo3D Generation Rate Limit](https://platform.tripo3d.ai/docs/limit#generation-rate-limit)
+
+If a client exceeds these limits, the API will respond with an HTTP `429 Too Many Requests` error, including a `Retry-After` header indicating when the client can try again.
+
+Backend Celery workers manage concurrency for Tripo tasks (10 for "other", 5 for "refine") and a task-level rate limit for OpenAI tasks (e.g., 5 tasks/minute globally) to align with external service capacities.
+
 ## Core Logic & Considerations
 
 1.  **API Key Management:**
