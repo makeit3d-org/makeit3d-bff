@@ -9,7 +9,7 @@ import asyncio
 
 from app.schemas.generation_schemas import ImageToImageRequest
 # Import Supabase client functions
-from app.supabase_client import get_supabase_client, upload_image_to_storage, create_concept_image_record, download_image_from_storage
+from app.supabase_client import get_supabase_client, upload_image_to_storage, create_concept_image_record, download_image_from_storage, create_signed_url
 # Import config settings and set test mode
 from app.config import settings
 settings.tripo_test_mode = True # Enable test mode for Tripo during tests
@@ -146,6 +146,7 @@ async def test_generate_image_to_image(request):
     image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg"
     prompt = "Transform me into a toy action figure. Make it look like I am made out of plastic. Make sure to still make it look like me as much as possible. Include my whole body with no background, surroundings or detached objects."
     style = "Cartoonish, cute but still realistic."
+    background = "transparent" # Explicitly set background to transparent
 
     logger.info(f"Running {request.node.name}...")
 
@@ -159,9 +160,9 @@ async def test_generate_image_to_image(request):
     logger.info(f"INPUT IMAGE DOWNLOAD: {time.time() - start_time:.2f}s")
 
     files = {'image': (image_filename, image_content, 'image/jpeg')}
-    data = {'prompt': prompt, 'style': style, 'n': 1}
+    data = {'prompt': prompt, 'style': style, 'n': 1, 'background': background}
 
-    logger.info(f"Calling {endpoint} with prompt='{prompt}', style='{style}', image='{image_filename}' and n=1...")
+    logger.info(f"Calling {endpoint} with prompt='{prompt}', style='{style}', background='{background}', image='{image_filename}' and n=1...")
     async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
         response = await client.post(endpoint, files=files, data=data)
@@ -278,153 +279,79 @@ async def test_generate_text_to_model(request):
 
 @pytest.mark.asyncio
 async def test_generate_from_concept(request):
-    """Test 2.2: /generate/select-concept endpoint (Tripo AI from OpenAI concept)."""
-    start_time = time.time()
-    logger.info(f"TEST START: {start_time}")
+    """Test 2.2: Generate 3D model from a pre-existing public concept image URL using Tripo AI.
+    This test does NOT involve OpenAI concept generation; it tests the /generate/select-concept endpoint directly.
+    """
+    overall_start_time = time.time()
+    logger.info(f"TEST START (Direct Concept-to-Model): {overall_start_time}")
+
+    # Use a publicly accessible URL for the concept image
+    public_concept_image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-concept.png"
     
-    # This test depends on the output of test_1_1_image_to_image.
-    # You need to run test_1_1 first and get a valid concept image URL and task ID.
-    # For automated testing, you might chain these or retrieve a known good concept URL/task ID.
-    # For this implementation, I'll use placeholders and skip the test if they are not updated.
+    # Since we are not generating a concept via OpenAI in this specific test, 
+    # we use a dummy task ID. The backend should handle this gracefully if the ID
+    # is only used for logging/tracing in this path.
+    dummy_concept_task_id = f"direct-tripo-test-{uuid.uuid4()}"
+
+    logger.info(f"Using public concept URL: {public_concept_image_url}")
+    logger.info(f"Using dummy concept_task_id: {dummy_concept_task_id}")
+
     select_concept_endpoint = f"{BASE_URL}/generate/select-concept"
 
-    # --- PLACEHOLDERS --- Update these with actual values after running test_1_1 ---
-    concept_image_url = os.environ.get("TEST_2_2_CONCEPT_IMAGE_URL", "YOUR_CONCEPT_IMAGE_URL") # Get from env var or placeholder
-    concept_task_id = os.environ.get("TEST_2_2_CONCEPT_TASK_ID", "YOUR_CONCEPT_TASK_ID") # Get from env var or placeholder
-    # ---------------------------------------------------------------------------
-
-    if concept_image_url == "YOUR_CONCEPT_IMAGE_URL" or concept_task_id == "YOUR_CONCEPT_TASK_ID":
-         logger.info(f"Skipping {request.node.name}: PLACEHOLDERS not updated. Run test_1_1 and update environment variables TEST_2_2_CONCEPT_IMAGE_URL and TEST_2_2_CONCEPT_TASK_ID, or update the placeholders in the test file.")
-         pytest.skip("Requires a valid concept image URL and task ID from test_1_1.")
-
-    logger.info(f"Running {request.node.name} with concept URL: {concept_image_url}")
-
     request_data = {
-        "concept_task_id": concept_task_id, # Use the dummy or real concept task ID
-        "selected_image_url": concept_image_url,
-        "texture": True # Assuming texture is true for this test
+        "concept_task_id": dummy_concept_task_id,
+        "selected_image_url": public_concept_image_url,
+        "texture": True
     }
 
-    logger.info(f"Calling {select_concept_endpoint} with selected_image_url='{concept_image_url}'...")
+    logger.info(f"Calling {select_concept_endpoint} with request_data: {request_data}")
     async with httpx.AsyncClient() as client:
         api_call_start = time.time()
         response = await client.post(select_concept_endpoint, json=request_data)
         response.raise_for_status()
         result = response.json()
-        logger.info(f"API RESPONSE TIME: {time.time() - api_call_start:.2f}s")
+        logger.info(f"API Response Time (/generate/select-concept): {time.time() - api_call_start:.2f}s")
 
     logger.info(f"Received response: {result}")
-
     assert "task_id" in result
-    task_id = result["task_id"]
-    logger.info(f"Received Tripo AI task_id from concept: {task_id}")
+    tripo_celery_task_id = result["task_id"]
+    logger.info(f"Received Tripo AI Celery task_id: {tripo_celery_task_id}")
 
-    # Poll for task completion and get result URL
+    logger.info(f"Polling for completion of Tripo task {tripo_celery_task_id}...")
     polling_start = time.time()
-    model_url_data = await poll_task_status(task_id, "tripo", total_timeout=300.0)
-    logger.info(f"TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
+    model_url_data = await poll_task_status(tripo_celery_task_id, "tripo", total_timeout=300.0)
+    logger.info(f"Task Processing Time (Tripo Celery Task): {time.time() - polling_start:.2f}s")
 
-    # Extract model_url from the result_url field
-    model_url = model_url_data.get('result_url')
+    final_model_url = model_url_data.get('result_url')
+    assert final_model_url is not None, f"Final model URL not found in response: {model_url_data}"
+    logger.info(f"Received final model URL: {final_model_url}")
 
-    assert model_url is not None
-    logger.info(f"Received model URL: {model_url}")
-
-    # Download the generated model
+    logger.info("Downloading the final generated 3D model...")
     download_start = time.time()
-    await download_file(model_url, request.node.name, "model.glb")
-    logger.info(f"MODEL DOWNLOAD TIME: {time.time() - download_start:.2f}s")
+    await download_file(final_model_url, request.node.name, "model_from_public_concept.glb")
+    logger.info(f"Final Model Download Time: {time.time() - download_start:.2f}s")
     
-    logger.info(f"TOTAL TEST TIME: {time.time() - start_time:.2f}s")
+    logger.info(f"TOTAL TEST TIME (Direct Concept-to-Model): {time.time() - overall_start_time:.2f}s")
 
 
 @pytest.mark.asyncio
-async def test_generate_image_to_model_texture(request):
-    """Test 3.1 (texture): /generate/image-to-model endpoint (Tripo AI multiview) using concept output."""
+async def test_generate_image_to_model(request):
+    """Test 3.0: /generate/image-to-model endpoint (Tripo AI multiview) using a pre-existing public image."""
     start_time = time.time()
     logger.info(f"TEST START: {start_time}")
     
-    # This test uses the output concept image URL from test_1_1_image_to_image as input.
-    # Similar to test_2_2, you need to run test_1_1 first and get a valid concept image URL.
-    # For this implementation, I'll use a placeholder and skip the test if it's not updated.
     image_to_model_endpoint = f"{BASE_URL}/generate/image-to-model"
 
-    # --- PLACEHOLDER --- Update this with an actual concept image URL after running test_1_1 ---
-    concept_image_url = os.environ.get("TEST_3_1_CONCEPT_IMAGE_URL", "YOUR_CONCEPT_IMAGE_URL") # Get from env var or placeholder
-    # ---------------------------------------------------------------------------------------
+    # Use a publicly accessible URL for the input image
+    public_input_image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-concept.png"
 
-    if concept_image_url == "YOUR_CONCEPT_IMAGE_URL":
-         logger.info(f"Skipping {request.node.name}: PLACEHOLDER not updated. Run test_1_1 and update environment variable TEST_3_1_CONCEPT_IMAGE_URL, or update the placeholder in the test file.")
-         pytest.skip("Requires a valid concept image URL from test_1_1.")
-
-    logger.info(f"Running {request.node.name} with input image URL: {concept_image_url}")
+    logger.info(f"Running {request.node.name} with input image URL: {public_input_image_url}")
 
     request_data = {
-        "image_urls": [concept_image_url], # Using the concept image URL as input for multiview (assuming Tripo handles single image input here too)
-        "prompt": "3D model from concept", # Optional prompt
+        "image_urls": [public_input_image_url], # Using the public image URL as input
+        "prompt": "3D model from image", # Optional prompt
         "style": "", # Optional style
-        "texture": True
-    }
-
-    logger.info(f"Calling {image_to_model_endpoint} with image_urls='{request_data["image_urls"]}'...")
-    async with httpx.AsyncClient() as client:
-        api_call_start = time.time()
-        response = await client.post(image_to_model_endpoint, json=request_data)
-        response.raise_for_status()
-        result = response.json()
-        logger.info(f"API RESPONSE TIME: {time.time() - api_call_start:.2f}s")
-
-    logger.info(f"Received response: {result}")
-
-    assert "task_id" in result
-    task_id = result["task_id"]
-    logger.info(f"Received Tripo AI task_id: {task_id}")
-
-    # Poll for task completion and get result URL
-    polling_start = time.time()
-    model_url_data = await poll_task_status(task_id, "tripo", total_timeout=300.0)
-    logger.info(f"TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
-
-    # Extract model_url from the result_url field
-    model_url = model_url_data.get('result_url')
-
-    assert model_url is not None
-    logger.info(f"Received model URL: {model_url}")
-
-    # Download the generated model
-    download_start = time.time()
-    await download_file(model_url, request.node.name, "model.glb")
-    logger.info(f"MODEL DOWNLOAD TIME: {time.time() - download_start:.2f}s")
-    
-    logger.info(f"TOTAL TEST TIME: {time.time() - start_time:.2f}s")
-
-
-@pytest.mark.asyncio
-async def test_generate_image_to_model_no_texture(request):
-    """Test 3.1 (no texture): /generate/image-to-model endpoint (Tripo AI multiview) using concept output."""
-    start_time = time.time()
-    logger.info(f"TEST START: {start_time}")
-    
-    # This test also uses the output concept image URL from test_1_1_image_to_image as input.
-    # Similar to test_3_1_texture, you need to run test_1_1 first and get a valid concept image URL.
-    # For this implementation, I'll use a placeholder and skip the test if it's not updated.
-    image_to_model_endpoint = f"{BASE_URL}/generate/image-to-model"
-
-    # --- PLACEHOLDER --- Update this with an actual concept image URL after running test_1_1 ---
-    concept_image_url = os.environ.get("TEST_3_1_CONCEPT_IMAGE_URL", "YOUR_CONCEPT_IMAGE_URL") # Get from env var or placeholder
-    # ---------------------------------------------------------------------------------------
-
-    if concept_image_url == "YOUR_CONCEPT_IMAGE_URL":
-         logger.info(f"Skipping {request.node.name}: PLACEHOLDER not updated. Run test_1_1 and update environment variable TEST_3_1_CONCEPT_IMAGE_URL, or update the placeholder in the test file.")
-         pytest.skip("Requires a valid concept image URL from test_1_1.")
-
-    logger.info(f"Running {request.node.name} with input image URL: {concept_image_url}")
-
-    request_data = {
-        "image_urls": [concept_image_url], # Using the concept image URL as input for multiview (assuming Tripo handles single image input here too)
-        "prompt": "3D model from concept", # Optional prompt
-        "style": "", # Optional style
-        "texture": False # Set texture to False for this test
+        "texture": True # Note: Tripo API appears to ignore this parameter and always use textures
     }
 
     logger.info(f"Calling {image_to_model_endpoint} with image_urls='{request_data["image_urls"]}'...")
@@ -462,53 +389,133 @@ async def test_generate_image_to_model_no_texture(request):
 
 @pytest.mark.asyncio
 async def test_generate_sketch_to_model(request):
-    """Test 4.1: /generate/sketch-to-model endpoint (Tripo AI single image)."""
+    """Test 4.1: /generate/sketch-to-model endpoint (OpenAI concept → Tripo 3D model pipeline)."""
     start_time = time.time()
     logger.info(f"TEST START: {start_time}")
     
-    endpoint = f"{BASE_URL}/generate/sketch-to-model"
+    # --- STEP 1: Generate a concept image using OpenAI (similar to test_generate_image_to_image) ---
+    image_to_image_endpoint = f"{BASE_URL}/generate/image-to-image"
     sketch_image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//sketch-cat.jpg"
-    prompt = "Create a photorealistic 3D rendering of the subject depicted in the provided sketch. Preserve the original proportions, geometry, and quirks of the drawing, no matter how unrealistic or awkward they are. The result should look like the sketch was literally brought to life in the real world, with realistic textures, lighting, and surroundings. The rendering should show what it would look like if the drawing existed as a physical object or creature."
-    style = None # No style for this test
+    prompt = "Create a photorealistic 3D rendering of the subject depicted in the provided sketch. Preserve the original proportions, geometry, and quirks of the drawing, no matter how unrealistic or awkward they are. The result should look like the sketch was literally brought to life in the real world, with realistic textures, lighting, and surroundings. The rendering should show what it would look like if the drawing existed as a physical object or creature. IMPORTANT: Use a completely transparent background with no drop shadows and environmental elements."
+    style = "Photorealistic, detailed textures, transparent background"
+    background_param = "transparent" # Explicitly set background to transparent for OpenAI API
+    
+    logger.info(f"Running {request.node.name} STEP 1: Generate concept using OpenAI")
+    logger.info(f"Using sketch image URL: {sketch_image_url}")
 
-    logger.info(f"Running {request.node.name} with sketch image URL: {sketch_image_url}")
-
-    request_data = {
-        "image_url": sketch_image_url,
-        "prompt": prompt,
-        "style": style,
-        "texture": True # Assuming texture is true for this test
-    }
-
-    logger.info(f"Calling {endpoint} with image_url='{sketch_image_url}' and prompt='{prompt}'...")
+    # Download the sketch image
+    input_sketch_download_start = time.time()
     async with httpx.AsyncClient() as client:
+        sketch_response = await client.get(sketch_image_url)
+        sketch_response.raise_for_status()
+        sketch_content = sketch_response.content
+        sketch_filename = sketch_image_url.split("/")[-1]
+    logger.info(f"INPUT SKETCH DOWNLOAD: {time.time() - input_sketch_download_start:.2f}s")
+
+    # Prepare data for OpenAI endpoint
+    files = {'image': (sketch_filename, sketch_content, 'image/jpeg')}
+    # Pass background_param to the data payload for the /image-to-image endpoint
+    data = {'prompt': prompt, 'style': style, 'n': 1, 'background': background_param}
+
+    logger.info(f"Calling {image_to_image_endpoint} with prompt='{prompt}', style='{style}', background='{background_param}', image='{sketch_filename}' and n=1...")
+    async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(image_to_image_endpoint, files=files, data=data)
         response.raise_for_status()
         result = response.json()
-        logger.info(f"API RESPONSE TIME: {time.time() - api_call_start:.2f}s")
+        logger.info(f"API RESPONSE TIME (OpenAI): {time.time() - api_call_start:.2f}s")
 
-    logger.info(f"Received response: {result}")
+    logger.info(f"Received response from OpenAI: {result}")
 
     assert "task_id" in result
-    task_id = result["task_id"]
-    logger.info(f"Received Tripo AI task_id: {task_id}")
+    openai_task_id = result["task_id"]
+    logger.info(f"Received OpenAI task_id: {openai_task_id}")
 
-    # Poll for task completion and get result URL
+    # Poll for task completion and get the result data
+    logger.info(f"Polling for completion of OpenAI task {openai_task_id}...")
     polling_start = time.time()
-    model_url_data = await poll_task_status(task_id, "tripo", total_timeout=300.0)
-    logger.info(f"TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
+    openai_result_data = await poll_task_status(openai_task_id, "openai", poll_interval=2, total_timeout=180.0)
+    logger.info(f"OPENAI TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
 
+    # Assert OpenAI task is completed and has image_urls in the result
+    assert openai_result_data.get('status') == 'completed'
+    assert 'result' in openai_result_data
+    assert 'image_urls' in openai_result_data['result']
+    concept_image_urls = openai_result_data['result']['image_urls']
+
+    assert isinstance(concept_image_urls, list)
+    assert len(concept_image_urls) > 0
+
+    # Download generated concept image
+    concept_download_start = time.time()
+    concept_image_path = await download_file(concept_image_urls[0], request.node.name, "concept.png")
+    logger.info(f"CONCEPT IMAGE DOWNLOAD TIME: {time.time() - concept_download_start:.2f}s")
+    logger.info(f"Generated concept saved to: {concept_image_path}")
+    
+    # --- STEP 2: Upload the concept image to Supabase and get a SIGNED URL ---
+    with open(concept_image_path, "rb") as f:
+        concept_image_content = f.read()
+    
+    # Generate a unique file name for the upload
+    unique_concept_filename = f"test_sketch_to_model/{uuid.uuid4()}.png"
+    logger.info(f"Uploading concept image to Supabase as: {unique_concept_filename}")
+    
+    upload_start = time.time()
+    # Upload the concept image to Supabase storage
+    file_path = await upload_image_to_storage(unique_concept_filename, concept_image_content)
+    logger.info(f"CONCEPT IMAGE UPLOAD TIME: {time.time() - upload_start:.2f}s")
+    
+    # Create a signed URL that will expire in 1 hour (3600 seconds)
+    signed_url_start = time.time()
+    concept_image_signed_url = await create_signed_url(file_path, "concept-images", 3600)
+    logger.info(f"SIGNED URL CREATION TIME: {time.time() - signed_url_start:.2f}s")
+    logger.info(f"Created signed URL for concept image: {concept_image_signed_url}")
+    
+    assert concept_image_signed_url is not None
+    
+    # --- STEP 3: Use the concept image SIGNED URL to generate a 3D model with Tripo ---
+    sketch_to_model_endpoint = f"{BASE_URL}/generate/sketch-to-model"
+    
+    logger.info(f"Running {request.node.name} STEP 3: Generate 3D model using Tripo with the OpenAI concept (via signed URL)")
+    
+    # Create a request with the signed image URL parameter
+    request_data = {
+        "image_url": concept_image_signed_url,
+        "prompt": prompt,
+        "style": style,
+        "texture": True
+    }
+    
+    logger.info(f"Calling {sketch_to_model_endpoint} with image_url='{concept_image_signed_url}' and prompt='{prompt}'...")
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        tripo_api_call_start = time.time()
+        response = await client.post(sketch_to_model_endpoint, json=request_data)
+        response.raise_for_status()
+        result = response.json()
+        logger.info(f"API RESPONSE TIME (Tripo): {time.time() - tripo_api_call_start:.2f}s")
+    
+    logger.info(f"Received response from Tripo: {result}")
+    
+    assert "task_id" in result
+    tripo_task_id = result["task_id"]
+    logger.info(f"Received Tripo AI task_id: {tripo_task_id}")
+    
+    # Poll for task completion and get result URL
+    tripo_polling_start = time.time()
+    model_url_data = await poll_task_status(tripo_task_id, "tripo", total_timeout=300.0)
+    logger.info(f"TRIPO TASK PROCESSING TIME: {time.time() - tripo_polling_start:.2f}s")
+    
     # Extract model_url from the result_url field
     model_url = model_url_data.get('result_url')
-
+    
     assert model_url is not None
     logger.info(f"Received model URL: {model_url}")
-
+    
     # Download the generated model
-    download_start = time.time()
-    await download_file(model_url, request.node.name, "model.glb")
-    logger.info(f"MODEL DOWNLOAD TIME: {time.time() - download_start:.2f}s")
+    model_download_start = time.time()
+    model_file_path = await download_file(model_url, request.node.name, "model_from_concept.glb")
+    logger.info(f"MODEL DOWNLOAD TIME: {time.time() - model_download_start:.2f}s")
+    logger.info(f"Model downloaded to: {model_file_path}")
     
     logger.info(f"TOTAL TEST TIME: {time.time() - start_time:.2f}s")
 

@@ -1,6 +1,7 @@
 import httpx
 from typing import Dict, Any, List, Optional
 import logging
+import json
 
 from app.config import settings
 from app.schemas.generation_schemas import (
@@ -29,7 +30,7 @@ async def call_tripo_task_api(task_type: str, payload: Dict[str, Any]) -> Dict[s
         "type": task_type,
         **payload
     }
-
+    
     logger.info(f"Calling Tripo AI Task API ({task_type}): {url}")
     logger.info(f"Request payload keys: {list(payload.keys())}")
     
@@ -68,10 +69,18 @@ async def generate_text_to_model(request_data: TextToModelRequest) -> Dict[str, 
     - prompt: Text input
     - texture: boolean (optional)
     - Additional optional parameters
+    
+    NOTE: The Tripo API appears to ignore the texture parameter and always use textures.
     """
-    payload = request_data.model_dump()
+    payload = request_data.model_dump(exclude_none=True) # exclude_none to avoid sending None values
     logger.info("Generating text-to-model with Tripo AI")
     logger.info(f"Text-to-model prompt: {payload.get('prompt', 'No prompt provided')}")
+
+    # If style is an empty string, remove it from the payload
+    if payload.get('style') == "":
+        logger.info("Empty string provided for style, removing from payload for text_to_model")
+        payload.pop('style')
+    
     return await call_tripo_task_api("text_to_model", payload)
 
 async def generate_image_to_model(request_data: ImageToModelRequest) -> Dict[str, Any]:
@@ -82,8 +91,10 @@ async def generate_image_to_model(request_data: ImageToModelRequest) -> Dict[str
     - files: List of file info (front, left, back, right)
     - texture: boolean (optional)
     - Additional optional parameters
+    
+    NOTE: The Tripo API appears to ignore the texture parameter and always use textures.
     """
-    payload = request_data.model_dump()
+    payload = request_data.model_dump(exclude_none=True) # exclude_none to avoid sending None values
     logger.info("Generating image-to-model (multiview) with Tripo AI")
     
     # Special handling for multiple images - wrap in 'files' parameter for multiview API
@@ -93,9 +104,26 @@ async def generate_image_to_model(request_data: ImageToModelRequest) -> Dict[str
         # If only one image is provided, use image_to_model instead of multiview
         if len(image_urls) == 1:
             logger.info("Single image provided, using image_to_model API")
-            # For single image, use file parameter with url
-            payload["file"] = {"url": image_urls[0], "type": "jpg"}
-            return await call_tripo_task_api("image_to_model", payload)
+            
+            # Create a payload for image_to_model
+            image_model_payload = {
+                "file": {"url": image_urls[0], "type": "jpg"}  # Assuming jpg, consider making type dynamic
+            }
+            
+            # Copy key parameters from the original request
+            if "prompt" in payload and payload["prompt"]:
+                image_model_payload["prompt"] = payload["prompt"]
+                
+            if "texture" in payload:
+                image_model_payload["texture"] = payload["texture"]
+                
+            # Remove empty style if present, otherwise copy it
+            if "style" in payload and not payload["style"]:
+                logger.info("Empty string provided for style, not adding to image_to_model payload")
+            elif "style" in payload:
+                image_model_payload["style"] = payload["style"]
+            
+            return await call_tripo_task_api("image_to_model", image_model_payload)
         else:
             # For multiple images, prepare files array for multiview
             files = []
@@ -106,9 +134,27 @@ async def generate_image_to_model(request_data: ImageToModelRequest) -> Dict[str
             while len(files) < 4:
                 files.append({})
                 
-            payload["files"] = files
-            logger.info(f"Multiview with {len(files)} images")
-            return await call_tripo_task_api("multiview_to_model", payload)
+            # Create a payload for multiview_to_model
+            multiview_payload = {
+                "files": files
+            }
+            
+            # Copy key parameters from the original request
+            if "prompt" in payload and payload["prompt"]:
+                multiview_payload["prompt"] = payload["prompt"]
+                
+            if "texture" in payload:
+                multiview_payload["texture"] = payload["texture"]
+                
+            # Remove empty style if present, otherwise copy it
+            if "style" in payload and not payload["style"]:
+                logger.info("Empty string provided for style, not adding to multiview_to_model payload")
+            elif "style" in payload:
+                multiview_payload["style"] = payload["style"]
+            
+            logger.info(f"Multiview with {len(files)} valid images")
+            
+            return await call_tripo_task_api("multiview_to_model", multiview_payload)
     else:
         logger.warning("No image_urls provided in request_data")
         return await call_tripo_task_api("multiview_to_model", payload)
@@ -121,22 +167,39 @@ async def generate_sketch_to_model(request_data: SketchToModelRequest) -> Dict[s
     - file: File info with URL
     - texture: boolean (optional)
     - Additional optional parameters
+    
+    NOTE: The Tripo API appears to ignore the texture parameter and always use textures.
     """
-    payload = request_data.model_dump()
+    # Start with all fields from the request model that are not None
+    payload = request_data.model_dump(exclude_none=True)
     logger.info("Generating sketch-to-model with Tripo AI")
-    
-    # Format payload to match V2 API
+
+    # Restructure for the 'file' parameter as per Tripo API docs for image_to_model
     if "image_url" in payload:
-        image_url = payload.pop("image_url")
-        payload["file"] = {"url": image_url, "type": "jpg"}
-        logger.info(f"Using image URL: {image_url}")
+        image_url_value = payload.pop("image_url")
+        payload["file"] = {"url": image_url_value, "type": "png"} # Assuming PNG from OpenAI
+        logger.info(f"Using image URL: {image_url_value} under file.url")
+    else:
+        # This case should ideally not happen if SketchToModelRequest requires image_url
+        logger.error("image_url missing in SketchToModelRequest for generate_sketch_to_model")
+        raise ValueError("image_url is required for sketch-to-model")
+
+    # Remove parameters not supported by image_to_model or if we want default behavior
+    if "prompt" in payload:
+        logger.info("Removing 'prompt' from payload as it's not supported by image_to_model type.")
+        payload.pop("prompt")
     
-    # For selected_image_url in SelectConceptRequest
-    if "selected_image_url" in payload:
-        image_url = payload.pop("selected_image_url")
-        payload["file"] = {"url": image_url, "type": "jpg"}
-        logger.info(f"Using selected image URL: {image_url}")
+    if "style" in payload:
+        logger.info("Removing 'style' from payload to use original image style (default behavior).")
+        payload.pop("style")
         
+    # 'texture' is a valid parameter, so it will be kept if present in request_data (defaults to True in schema)
+    # Other valid parameters from SketchToModelRequest like model_version, pbr, etc., will be passed if not None.
+
+    logger.info(f"Final payload keys for image_to_model: {list(payload.keys())}")
+    if "file" in payload:
+        logger.info(f"File parameter details: {payload['file']}")
+
     return await call_tripo_task_api("image_to_model", payload)
 
 async def refine_model(request_data: RefineModelRequest) -> Dict[str, Any]:
@@ -165,7 +228,6 @@ async def poll_tripo_task_status(task_id: str) -> Dict[str, Any]:
             response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
             
             response_data = response.json()
-            logger.info(f"Tripo API raw response for task {task_id}: {response_data}")
             
             # V2 API response structure: {"code": 0, "data": {...}}
             if "code" not in response_data or response_data.get("code") != 0:

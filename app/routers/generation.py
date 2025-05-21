@@ -50,17 +50,18 @@ async def generate_image_to_image_endpoint(
     image: UploadFile = File(...),
     prompt: str = Form(...),
     style: Optional[str] = Form(None),
+    background: Optional[str] = Form(None),
     n: Optional[int] = Form(1)
 ):
     """Generates 2D concepts from an input image and text prompt using OpenAI.
     Handles multipart/form-data for the image file.
     """
-    logger.info(f"Received request for /generate/image-to-image with n={n}")
+    logger.info(f"Received request for /generate/image-to-image with n={n}, background={background}")
     # Read image file content
     image_bytes = await image.read()
 
     # Prepare data for client (excluding file which is handled separately)
-    request_data = ImageToImageRequest(prompt=prompt, style=style, n=n)
+    request_data = ImageToImageRequest(prompt=prompt, style=style, n=n, background=background)
 
     if settings.sync_mode:
         logger.info("Running OpenAI image generation task synchronously.")
@@ -154,7 +155,7 @@ async def generate_image_to_model_endpoint(request: Request, request_data: Image
     logger.info("Received request for /generate/image-to-model (multiview)")
     # Send task to Celery and return the task ID
     logger.info("Sending Tripo AI image-to-model task to Celery...")
-    task = generate_tripo_image_to_model_task.delay(request_data.model_dump())
+    task = generate_tripo_image_to_model_task.delay(request_data.model_dump(exclude_unset=False))
     logger.info(f"Celery task ID: {task.id}")
     return TaskIdResponse(task_id=task.id)
 

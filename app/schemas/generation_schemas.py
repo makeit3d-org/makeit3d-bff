@@ -1,14 +1,23 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any, Literal
 from typing_extensions import Annotated # Use typing_extensions for Annotated for broader compatibility
 
 # Schemas for generation endpoints
 
 class ImageToImageRequest(BaseModel):
+    """Request schema for image-to-image generation (OpenAI)."""
     prompt: str
-    style: Optional[str] = None
-    n: Annotated[Optional[int], Field(ge=1, le=10)] = 1 # Number of images to generate, between 1 and 10, default to 1
-    # Note: Image file is handled via multipart/form-data directly in the endpoint, not in this schema
+    style: Optional[str] = None # Retain for potential frontend use or different models
+    n: Optional[int] = Field(default=1, ge=1, le=10) # Number of images, default 1
+    # Add other OpenAI parameters as needed, e.g., size, response_format
+    # model: Optional[str] = "dall-e-2" # or "gpt-image-1" - client should set this
+    background: Optional[str] = None # New field for background transparency
+
+    @field_validator('background')
+    def check_background_value(cls, value: Optional[str]):
+        if value is not None and value not in ['transparent', 'opaque', 'auto']:
+            raise ValueError("Background must be one of 'transparent', 'opaque', or 'auto'")
+        return value
 
 class TextToModelRequest(BaseModel):
     """Corresponds to Tripo AI text_to_model API."""

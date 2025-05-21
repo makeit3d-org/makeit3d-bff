@@ -23,7 +23,19 @@ async def generate_image_to_image(image_file: bytes, filename: str, request_data
         "model": "gpt-image-1",
         "n": request_data.n,
         "size": "auto",
+        # Default to b64_json for gpt-image-1, which is what we expect for Supabase upload
+        # No explicit response_format needed as gpt-image-1 always returns b64_json
     }
+
+    # Add background if provided
+    if request_data.background:
+        data["background"] = request_data.background
+        # If background is transparent, ensure response_format implies PNG (default for gpt-image-1)
+        # OpenAI docs state: "If transparent, the output format needs to support transparency, 
+        # so it should be set to either png (default value) or webp."
+        # gpt-image-1 already returns b64_json (which will be PNG data), so no explicit format change needed.
+        logger.info(f"Using background: {request_data.background}")
+
     # Note: Mask parameter is not included as per BFF architecture doc
 
     logger.info(f"Calling OpenAI Image Edit API: {url}")

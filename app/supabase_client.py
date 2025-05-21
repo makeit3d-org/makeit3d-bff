@@ -113,6 +113,33 @@ def sync_download_image_from_storage(file_path: str, bucket_name: str = "concept
         logger.error(f"SYNC: Error downloading from Supabase Storage: {e}", exc_info=True)
         raise SupabaseStorageError(f"SYNC: Failed to download {file_path} from Supabase Storage: {e}") from e
 
+def sync_create_signed_url(file_path: str, bucket_name: str = "concept-images", expires_in: int = 3600) -> str:
+    """
+    Synchronously creates a signed URL for secure access to a file in Supabase Storage.
+    
+    Args:
+        file_path: The file path within the bucket.
+        bucket_name: The target storage bucket.
+        expires_in: The number of seconds until the signed URL expires (default: 1 hour).
+        
+    Returns:
+        A signed URL with temporary access to the file.
+    """
+    supabase = get_supabase_client()
+    try:
+        response = supabase.storage.from_(bucket_name).create_signed_url(file_path, expires_in)
+        logger.info(f"SYNC: Created signed URL for {file_path} in bucket {bucket_name} (expires in {expires_in} seconds).")
+        if isinstance(response, dict) and 'signedURL' in response:
+            return response['signedURL']
+        elif isinstance(response, dict) and 'signed_url' in response:
+            return response['signed_url']
+        else:
+            logger.warning(f"SYNC: Unexpected signed URL response format: {response}")
+            return response  # Return whatever we got, might need to be fixed based on actual response
+    except Exception as e:
+        logger.error(f"SYNC: Error creating signed URL for Supabase Storage: {e}", exc_info=True)
+        raise SupabaseStorageError(f"SYNC: Failed to create signed URL for {file_path} in Supabase Storage: {e}") from e
+
 # --- Async Wrappers (keeping for now in case other parts of app use them, though they are problematic) ---
 async def upload_image_to_storage(file_name: str, image_data: bytes, bucket_name: str = "concept-images") -> str:
     """
@@ -204,3 +231,30 @@ async def download_image_from_storage(file_path: str, bucket_name: str = "concep
         logger.error(f"Error downloading from Supabase Storage: {e}", exc_info=True)
         # Handle specific Supabase storage errors if needed
         raise 
+
+async def create_signed_url(file_path: str, bucket_name: str = "concept-images", expires_in: int = 3600) -> str:
+    """
+    Creates a signed URL for secure access to a file in Supabase Storage.
+    
+    Args:
+        file_path: The file path within the bucket.
+        bucket_name: The target storage bucket.
+        expires_in: The number of seconds until the signed URL expires (default: 1 hour).
+        
+    Returns:
+        A signed URL with temporary access to the file.
+    """
+    supabase = get_supabase_client()
+    try:
+        response = supabase.storage.from_(bucket_name).create_signed_url(file_path, expires_in)
+        logger.info(f"Created signed URL for {file_path} in bucket {bucket_name} (expires in {expires_in} seconds).")
+        if isinstance(response, dict) and 'signedURL' in response:
+            return response['signedURL']
+        elif isinstance(response, dict) and 'signed_url' in response:
+            return response['signed_url']
+        else:
+            logger.warning(f"Unexpected signed URL response format: {response}")
+            return response  # Return whatever we got, might need to be fixed based on actual response
+    except Exception as e:
+        logger.error(f"Error creating signed URL for Supabase Storage: {e}", exc_info=True)
+        raise SupabaseStorageError(f"Failed to create signed URL for {file_path} in Supabase Storage: {e}") from e 
