@@ -9,7 +9,8 @@ import asyncio
 
 from app.schemas.generation_schemas import ImageToImageRequest
 # Import Supabase client functions
-from app.supabase_client import get_supabase_client, upload_image_to_storage, create_concept_image_record, download_image_from_storage, create_signed_url
+from app.supabase_client import get_supabase_client, download_image_from_storage, create_signed_url
+import app.supabase_handler as supabase_handler # Add supabase_handler import
 # Import config settings and set test mode
 from app.config import settings
 settings.tripo_test_mode = True # Enable test mode for Tripo during tests
@@ -165,13 +166,18 @@ async def test_generate_image_to_image(request):
     supabase_image_path = f"test_inputs/image-to-image/{client_task_id}/{original_filename}"
     logger.info(f"Uploading image to Supabase Storage: {supabase_image_path}")
     
-    # upload_image_to_storage returns the file_path within the bucket
-    uploaded_file_path = await upload_image_to_storage(supabase_image_path, image_content)
-    logger.info(f"Image uploaded to Supabase path: {uploaded_file_path}")
+    # upload_asset_to_storage returns the full URL 
+    input_supabase_url = await supabase_handler.upload_asset_to_storage(
+        task_id=client_task_id,
+        asset_type_plural="test_inputs/image-to-image", 
+        file_name=original_filename,
+        asset_data=image_content,
+        content_type="image/jpeg"
+    )
+    logger.info(f"Image uploaded to Supabase URL: {input_supabase_url}")
 
-    # Construct the full Supabase URL
-    input_supabase_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_public_bucket_name}/{uploaded_file_path}"
-    logger.info(f"Constructed Supabase input URL: {input_supabase_url}")
+    # No need to construct URL since upload_asset_to_storage returns it
+    logger.info(f"Using Supabase input URL: {input_supabase_url}")
     
     # 3. Call BFF endpoint with Supabase URL
     request_data = {
@@ -254,8 +260,8 @@ async def test_generate_text_to_model(request):
 
     logger.info(f"Received response: {result}")
 
-    assert "task_id" in result # This is the Celery task_id
-    celery_task_id = result["task_id"]
+    assert "celery_task_id" in result # This is the Celery task_id
+    celery_task_id = result["celery_task_id"]
     logger.info(f"Received Celery task_id: {celery_task_id}")
 
     # Poll for task completion and get result URL
@@ -305,8 +311,13 @@ async def test_generate_image_to_model(request):
 
     # 2. Upload image to Supabase (simulating client's asset)
     supabase_image_path = f"test_inputs/image-to-model/{client_task_id}/{original_filename}"
-    uploaded_file_path = await upload_image_to_storage(supabase_image_path, image_content)
-    input_supabase_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_public_bucket_name}/{uploaded_file_path}"
+    input_supabase_url = await supabase_handler.upload_asset_to_storage(
+        task_id=client_task_id,
+        asset_type_plural="test_inputs/image-to-model",
+        file_name=original_filename,
+        asset_data=image_content,
+        content_type="image/png" if original_filename.endswith('.png') else "image/jpeg"
+    )
     logger.info(f"Input image uploaded to Supabase, URL: {input_supabase_url}")
 
     request_data = {
@@ -326,8 +337,8 @@ async def test_generate_image_to_model(request):
 
     logger.info(f"Received response: {result}")
 
-    assert "task_id" in result # Celery task_id
-    celery_task_id = result["task_id"]
+    assert "celery_task_id" in result # Celery task_id
+    celery_task_id = result["celery_task_id"]
     logger.info(f"Received Celery task_id: {celery_task_id}")
 
     # Poll for task completion
@@ -369,8 +380,13 @@ async def test_generate_sketch_to_model(request):
     logger.info(f"INPUT SKETCH DOWNLOADED: {original_sketch_filename}")
 
     supabase_sketch_path = f"test_inputs/sketch-to-model/{client_task_id}/{original_sketch_filename}"
-    uploaded_sketch_file_path = await upload_image_to_storage(supabase_sketch_path, sketch_content)
-    input_sketch_supabase_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_public_bucket_name}/{uploaded_sketch_file_path}"
+    input_sketch_supabase_url = await supabase_handler.upload_asset_to_storage(
+        task_id=client_task_id,
+        asset_type_plural="test_inputs/sketch-to-model",
+        file_name=original_sketch_filename,
+        asset_data=sketch_content,
+        content_type="image/jpeg" if original_sketch_filename.endswith('.jpg') else "image/png"
+    )
     logger.info(f"Input sketch uploaded to Supabase, URL: {input_sketch_supabase_url}")
     
     # 2. Call BFF endpoint with the Supabase URL of the sketch
@@ -392,8 +408,8 @@ async def test_generate_sketch_to_model(request):
     
     logger.info(f"Received response from BFF: {result}")
     
-    assert "task_id" in result # Celery task_id
-    celery_task_id = result["task_id"]
+    assert "celery_task_id" in result # Celery task_id
+    celery_task_id = result["celery_task_id"]
     logger.info(f"Received Celery task_id: {celery_task_id}")
     
     # Poll for task completion
@@ -423,7 +439,7 @@ async def test_supabase_upload_and_metadata(request):
     logger.info(f"Running {request.node.name}...")
 
     # 1. Download a small public image
-    image_to_download_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg"
+    image_to_download_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-concept.png"
     logger.info(f"Downloading image from {image_to_download_url} for Supabase test.")
     download_start = time.time()
     async with httpx.AsyncClient() as client:
@@ -434,17 +450,22 @@ async def test_supabase_upload_and_metadata(request):
 
     # 2. Upload the image to Supabase Storage (using makeit3d-app-assets bucket)
     test_task_id = f"test-task-{uuid.uuid4()}"
-    unique_file_name = f"concepts/{test_task_id}/test_concept.jpg"
-    logger.info(f"Uploading image to Supabase Storage: {unique_file_name}")
+    unique_file_name = f"test_concept.png"  # Changed to PNG to match downloaded file
+    logger.info(f"Uploading image to Supabase Storage: concepts/{test_task_id}/{unique_file_name}")
     upload_start = time.time()
-    uploaded_file_path = await upload_image_to_storage(unique_file_name, image_content)
-    logger.info(f"Image uploaded to: {uploaded_file_path}")
+    full_asset_url = await supabase_handler.upload_asset_to_storage(
+        task_id=test_task_id,
+        asset_type_plural="concepts",
+        file_name=unique_file_name,
+        asset_data=image_content,
+        content_type="image/png"  # Changed to PNG
+    )
+    logger.info(f"Image uploaded to: {full_asset_url}")
     logger.info(f"UPLOAD TIME: {time.time() - upload_start:.2f}s")
 
-    assert uploaded_file_path is not None
+    assert full_asset_url is not None
 
-    # 3. Construct the full Supabase URL for the uploaded asset
-    full_asset_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_public_bucket_name}/{uploaded_file_path}"
+    # 3. The asset URL is already the full URL from upload_asset_to_storage
     logger.info(f"Full asset URL: {full_asset_url}")
 
     # 4. Create a metadata record in the concept_images table with new schema
@@ -482,16 +503,14 @@ async def test_supabase_upload_and_metadata(request):
         logger.error(f"Error creating concept_images record: {e}", exc_info=True)
         pytest.fail(f"Error creating concept_images record: {e}")
 
-    # 5. Download the image directly from Supabase Storage using the asset URL
-    logger.info(f"Downloading image directly from Supabase using asset URL")
+    # 5. Download the image directly from Supabase Storage using authenticated access
+    logger.info(f"Downloading image from Supabase using authenticated fetch_asset_from_storage")
     supabase_dl_start = time.time()
     
-    async with httpx.AsyncClient() as client:
-        download_response = await client.get(full_asset_url)
-        download_response.raise_for_status()
-        downloaded_image_data = download_response.content
+    # Use authenticated download instead of public HTTP GET
+    downloaded_image_data = await supabase_handler.fetch_asset_from_storage(full_asset_url)
         
-    logger.info(f"Image data downloaded directly from Supabase. Size: {len(downloaded_image_data)} bytes.")
+    logger.info(f"Image data downloaded from Supabase. Size: {len(downloaded_image_data)} bytes.")
     logger.info(f"SUPABASE DOWNLOAD TIME: {time.time() - supabase_dl_start:.2f}s")
 
     # Basic assertion to check if downloaded data is not empty
@@ -570,8 +589,13 @@ async def test_generate_multiview_to_model(request):
 
         # Upload to Supabase with view name in path
         supabase_image_path = f"test_inputs/multiview-to-model/{client_task_id}/{original_filename}"
-        uploaded_file_path = await upload_image_to_storage(supabase_image_path, image_content)
-        input_supabase_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_public_bucket_name}/{uploaded_file_path}"
+        input_supabase_url = await supabase_handler.upload_asset_to_storage(
+            task_id=client_task_id,
+            asset_type_plural="test_inputs/multiview-to-model",
+            file_name=original_filename,
+            asset_data=image_content,
+            content_type="image/png" if original_filename.endswith('.png') else "image/jpeg"
+        )
         input_supabase_urls.append(input_supabase_url)
         logger.info(f"✓ {view_names[i]} view uploaded to Supabase: {input_supabase_url}")
 

@@ -13,8 +13,7 @@ from app.schemas.generation_schemas import (
     TextToModelRequest,
     ImageToModelRequest,
     SketchToModelRequest,
-    RefineModelRequest,
-    SelectConceptRequest
+    RefineModelRequest
 )
 # Import the synchronous Supabase client functions and custom exceptions
 from app.supabase_client import (
@@ -82,7 +81,7 @@ def generate_openai_image_task(self, concept_image_db_id: int, image_bytes: byte
 
             for i, b64_image in enumerate(b64_images):
                 try:
-                    current_image_bytes = base64.b64decode(b64_image)
+                current_image_bytes = base64.b64decode(b64_image)
                     # Filename for Supabase storage, e.g., "0.png", "1.png"
                     # Path construction (concepts/client_task_id/0.png) is handled by upload_asset_to_storage
                     file_name_in_bucket = f"{i}.png" 

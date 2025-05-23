@@ -9,8 +9,7 @@ from app.schemas.generation_schemas import (
     TextToModelRequest,
     ImageToModelRequest,
     SketchToModelRequest,
-    RefineModelRequest,
-    SelectConceptRequest
+    RefineModelRequest
 )
 
 logger = logging.getLogger(__name__)
