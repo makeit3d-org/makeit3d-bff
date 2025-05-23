@@ -109,11 +109,14 @@ async def get_task_status_endpoint(
             logger.info(f"Polling Tripo AI for their task ID: {tripo_provider_task_id} (Celery task: {celery_task_id}, DB Record: {db_record_id}) ")
             try:
                 tripo_status_response = await tripo_client.poll_tripo_task_status(tripo_provider_task_id)
-                tripo_job_status = tripo_status_response.get("data", {}).get("status")
-                logger.info(f"Tripo AI task {tripo_provider_task_id} status from API: {tripo_job_status}")
+                tripo_data = tripo_status_response.get("data", {})
+                tripo_job_status = tripo_data.get("status")
+                tripo_progress = tripo_data.get("progress", 0)  # Extract progress field
+                
+                logger.info(f"Tripo AI task {tripo_provider_task_id} status from API: {tripo_job_status}, progress: {tripo_progress}%")
 
                 if tripo_job_status == "success":
-                    outputs = tripo_status_response.get("data", {}).get("output", {})
+                    outputs = tripo_data.get("output", {})
                     # Check for different output formats based on Tripo v2 API docs
                     model_url = None
                     if isinstance(outputs, dict):
@@ -148,24 +151,24 @@ async def get_task_status_endpoint(
 
                     await supabase_handler.update_model_record(
                         task_id=client_task_id, model_id=db_record_id, asset_url=final_asset_url,
-                        status="complete", ai_provider_task_id=tripo_provider_task_id)
+                        status="complete", ai_service_task_id=tripo_provider_task_id)
                     logger.info(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}): Final DB record updated.")
-                    return TaskStatusResponse(task_id=celery_task_id, status="complete", asset_url=final_asset_url)
+                    return TaskStatusResponse(task_id=celery_task_id, status="complete", asset_url=final_asset_url, progress=100)
 
                 elif tripo_job_status == "failed":
-                    tripo_error_info = tripo_status_response.get("data", {}).get("error", "Tripo AI task failed without specific error.")
+                    tripo_error_info = tripo_data.get("error", "Tripo AI task failed without specific error.")
                     logger.error(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}) failed. Error: {tripo_error_info}")
                     await supabase_handler.update_model_record(task_id=client_task_id, model_id=db_record_id, status="failed", metadata={"tripo_error": tripo_error_info})
-                    return TaskStatusResponse(task_id=celery_task_id, status="failed", error=tripo_error_info)
+                    return TaskStatusResponse(task_id=celery_task_id, status="failed", error=tripo_error_info, progress=tripo_progress)
                 
                 elif tripo_job_status in ["running", "queued"]:
-                    logger.info(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}) is still processing (status: {tripo_job_status}).")
-                    return TaskStatusResponse(task_id=celery_task_id, status="processing")
+                    logger.info(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}) is still processing (status: {tripo_job_status}, progress: {tripo_progress}%).")
+                    return TaskStatusResponse(task_id=celery_task_id, status="processing", progress=tripo_progress)
                 
                 else: 
                     logger.warning(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}) unknown status: {tripo_job_status}. Response: {tripo_status_response}")
                     await supabase_handler.update_model_record(task_id=client_task_id, model_id=db_record_id, status="failed")
-                    return TaskStatusResponse(task_id=celery_task_id, status="failed", error=f"Tripo unknown status: {tripo_job_status}")
+                    return TaskStatusResponse(task_id=celery_task_id, status="failed", error=f"Tripo unknown status: {tripo_job_status}", progress=tripo_progress)
 
             except httpx.HTTPStatusError as e_http_tripo:
                 error_info = f"HTTP error polling Tripo status ({tripo_provider_task_id}): {e_http_tripo.response.status_code} - {e_http_tripo.response.text}"
@@ -184,10 +187,55 @@ async def get_task_status_endpoint(
             raise HTTPException(status_code=400, detail=f"Invalid service: {service}. Must be 'openai' or 'tripoai'.")
 
     else: # PENDING, RETRY, STARTED, etc.
-        # Map Celery statuses to our simplified system
+        # For TripoAI tasks, always try to get progress from Tripo API regardless of Celery status
+        if service == "tripoai":
+            try:
+                # Try to get the Celery task result to extract Tripo task ID (even if Celery is pending)
+                celery_payload = celery_task_result.result
+                if celery_payload and isinstance(celery_payload, dict):
+                    tripo_provider_task_id = celery_payload.get("tripo_task_id")
+                    db_record_id = celery_payload.get("db_record_id")
+                    client_task_id = celery_payload.get("client_task_id")
+                    
+                    if tripo_provider_task_id:
+                        logger.info(f"Celery task {celery_task_id} status: {task_status_from_celery}, polling Tripo task {tripo_provider_task_id} for progress")
+                        
+                        # Poll Tripo for current status and progress
+                        tripo_status_response = await tripo_client.poll_tripo_task_status(tripo_provider_task_id)
+                        
+                        # Log the full Tripo response for debugging
+                        logger.info(f"Full Tripo API response for task {tripo_provider_task_id}: {tripo_status_response}")
+                        
+                        tripo_data = tripo_status_response.get("data", {})
+                        tripo_job_status = tripo_data.get("status")
+                        tripo_progress = tripo_data.get("progress", 0)
+                        
+                        # Log the Tripo output URLs if available
+                        output = tripo_data.get("output", {})
+                        if output:
+                            logger.info(f"Tripo task {tripo_provider_task_id} output URLs available:")
+                            if output.get("model"):
+                                logger.info(f"  - model: {output['model']}")
+                            if output.get("base_model"):
+                                logger.info(f"  - base_model: {output['base_model']}")
+                            if output.get("pbr_model"):
+                                logger.info(f"  - pbr_model: {output['pbr_model']}")
+                            if output.get("rendered_image"):
+                                logger.info(f"  - rendered_image: {output['rendered_image']}")
+                        
+                        logger.info(f"Tripo task {tripo_provider_task_id} status: {tripo_job_status}, progress: {tripo_progress}%")
+                        
+                        # Return processing status with real Tripo progress
+                        return TaskStatusResponse(task_id=celery_task_id, status="processing", progress=tripo_progress)
+                        
+            except Exception as e:
+                logger.warning(f"Could not get Tripo progress for Celery task {celery_task_id}: {e}")
+                # Fall back to default behavior
+        
+        # Map Celery statuses to our simplified system (fallback)
         celery_status_mapping = {
             "PENDING": "pending",
-            "STARTED": "processing",
+            "STARTED": "processing", 
             "RETRY": "processing",
             "RECEIVED": "pending"
         }

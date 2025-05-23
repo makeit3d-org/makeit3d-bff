@@ -109,6 +109,7 @@ class TaskStatusResponse(BaseModel):
     status: str # pending, processing, complete, failed
     asset_url: Optional[str] = None # Full Supabase URL to the generated asset (only present if status is 'complete')
     error: Optional[str] = None # Error message if the task failed
+    progress: Optional[int] = None # Progress percentage (0-100) for Tripo AI tasks
 
 class ErrorResponse(BaseModel):
     detail: str

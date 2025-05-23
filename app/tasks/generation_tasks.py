@@ -3,6 +3,7 @@ import base64
 import inspect # Import inspect
 import asyncio # Import asyncio
 import httpx # Add httpx import for error handling
+from typing import Dict, Any, List
 
 from celery import Celery
 
@@ -81,7 +82,7 @@ def generate_openai_image_task(self, concept_image_db_id: int, image_bytes: byte
 
             for i, b64_image in enumerate(b64_images):
                 try:
-                current_image_bytes = base64.b64decode(b64_image)
+                    current_image_bytes = base64.b64decode(b64_image)
                     # Filename for Supabase storage, e.g., "0.png", "1.png"
                     # Path construction (concepts/client_task_id/0.png) is handled by upload_asset_to_storage
                     file_name_in_bucket = f"{i}.png" 
@@ -193,7 +194,7 @@ def generate_openai_image_task(self, concept_image_db_id: int, image_bytes: byte
         raise # Re-raise the exception to ensure Celery sees it as a failure
 
 @celery_app.task(bind=True)
-def generate_tripo_text_to_model_task(self, model_db_id: int, request_data_dict: dict):
+def generate_tripo_text_to_model_task(self, model_db_id: str, request_data_dict: dict):
     """Celery task to call Tripo AI text-to-model, handle polling, download, upload to Supabase, and update the DB record."""
     
     client_task_id = request_data_dict.get("task_id")
@@ -236,57 +237,76 @@ def generate_tripo_text_to_model_task(self, model_db_id: int, request_data_dict:
                 status="processing",
             )
 
-            # Wait for completion and get result
-            final_result = await tripo_client.poll_tripo_task_status(tripo_task_id)
+            # Wait for completion and get result - implement proper polling loop
+            max_polls = 180  # 3 minutes with 1-second intervals
+            poll_count = 0
             
-            if final_result.get("status") == "complete":
-                result_url = final_result.get("result_url")
-                if not result_url:
-                    error_message = "Tripo AI task complete but no result URL."
+            while poll_count < max_polls:
+                tripo_response = await tripo_client.poll_tripo_task_status(tripo_task_id)
+                normalized_result = tripo_client.normalize_tripo_status(tripo_response)
+                
+                task_status = normalized_result.get("status")
+                progress = normalized_result.get("progress", 0)
+                
+                logger.info(f"Celery task {celery_task_id}: Tripo task {tripo_task_id} status: {task_status}, progress: {progress}%")
+                
+                if task_status == "complete":
+                    result_url = normalized_result.get("result_url")
+                    if not result_url:
+                        error_message = "Tripo AI task complete but no result URL."
+                        logger.error(f"Celery task {celery_task_id}: {error_message}")
+                        raise CeleryTaskException(error_message)
+
+                    # Download from Tripo's temporary URL
+                    logger.info(f"Celery task {celery_task_id}: Downloading model from {result_url}")
+                    async with httpx.AsyncClient() as http_client:
+                        dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
+                        dl_response.raise_for_status()
+                        model_data_bytes = dl_response.content
+
+                    # Upload to our Supabase
+                    final_asset_url = await supabase_handler.upload_asset_to_storage(
+                        task_id=client_task_id,
+                        asset_type_plural="models",
+                        file_name="model.glb",
+                        asset_data=model_data_bytes,
+                        content_type="model/gltf-binary"
+                    )
+
+                    # Update DB record with final URL and complete status
+                    await supabase_handler.update_model_record(
+                        task_id=client_task_id,
+                        model_id=model_db_id,
+                        asset_url=final_asset_url,
+                        status="complete",
+                        ai_service_task_id=tripo_task_id,
+                        prompt=request_data.prompt,
+                        style=request_data.style
+                    )
+
+                    final_status = "complete"
+                    logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with final URL and status 'complete'.")
+                    
+                    return {
+                        'status': final_status,
+                        'result_url': final_asset_url,
+                        'db_record_id': model_db_id,
+                        'client_task_id': client_task_id,
+                        'tripo_task_id': tripo_task_id
+                    }
+                elif task_status in ["failed", "cancelled", "unknown"]:
+                    error_message = f"Tripo AI task failed with status: {task_status}"
                     logger.error(f"Celery task {celery_task_id}: {error_message}")
                     raise CeleryTaskException(error_message)
-
-                # Download from Tripo's temporary URL
-                logger.info(f"Celery task {celery_task_id}: Downloading model from {result_url}")
-                async with httpx.AsyncClient() as http_client:
-                    dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
-                    dl_response.raise_for_status()
-                    model_data_bytes = dl_response.content
-
-                # Upload to our Supabase
-                final_asset_url = await supabase_handler.upload_asset_to_storage(
-                    task_id=client_task_id,
-                    asset_type_plural="models",
-                    file_name="model.glb",
-                    asset_data=model_data_bytes,
-                    content_type="model/gltf-binary"
-                )
-
-                # Update DB record with final URL and complete status
-                await supabase_handler.update_model_record(
-                    task_id=client_task_id,
-                    model_id=model_db_id,
-                    asset_url=final_asset_url,
-                    status="complete",
-                    ai_service_task_id=tripo_task_id,
-                    prompt=request_data.prompt,
-                    style=request_data.style
-                )
-
-                final_status = "complete"
-                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with final URL and status 'complete'.")
                 
-                return {
-                    'status': final_status,
-                    'result_url': final_asset_url,
-                    'db_record_id': model_db_id,
-                    'client_task_id': client_task_id,
-                    'tripo_task_id': tripo_task_id
-                }
-            else:
-                error_message = f"Tripo AI task failed or unknown status: {final_result.get('status')}"
-                logger.error(f"Celery task {celery_task_id}: {error_message}")
-                raise CeleryTaskException(error_message)
+                # Task is still pending or processing, wait and poll again
+                poll_count += 1
+                await asyncio.sleep(1)
+            
+            # If we reach here, polling timed out
+            error_message = f"Tripo AI task polling timed out after {max_polls} polls"
+            logger.error(f"Celery task {celery_task_id}: {error_message}")
+            raise CeleryTaskException(error_message)
 
         except httpx.HTTPStatusError as e_http:
             error_message = f"HTTP error during Tripo call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
@@ -330,7 +350,7 @@ def generate_tripo_text_to_model_task(self, model_db_id: int, request_data_dict:
         raise
 
 @celery_app.task(bind=True)
-def generate_tripo_image_to_model_task(self, model_db_id: int, image_bytes_list: list[bytes], original_filenames: list[str], request_data_dict: dict):
+def generate_tripo_image_to_model_task(self, model_db_id: str, image_bytes_list: list[bytes], original_filenames: list[str], request_data_dict: dict):
     """Celery task to call Tripo AI image-to-model (multiview) and update DB with Tripo task ID."""
     client_task_id = request_data_dict.get("task_id")
     celery_task_id = self.request.id
@@ -373,57 +393,76 @@ def generate_tripo_image_to_model_task(self, model_db_id: int, image_bytes_list:
                 status="processing"
             )
 
-            # Wait for completion and get result
-            final_result = await tripo_client.poll_tripo_task_status(tripo_task_id)
+            # Wait for completion and get result - implement proper polling loop
+            max_polls = 180  # 3 minutes with 1-second intervals
+            poll_count = 0
             
-            if final_result.get("status") == "complete":
-                result_url = final_result.get("result_url")
-                if not result_url:
-                    error_message = "Tripo AI task complete but no result URL."
+            while poll_count < max_polls:
+                tripo_response = await tripo_client.poll_tripo_task_status(tripo_task_id)
+                normalized_result = tripo_client.normalize_tripo_status(tripo_response)
+                
+                task_status = normalized_result.get("status")
+                progress = normalized_result.get("progress", 0)
+                
+                logger.info(f"Celery task {celery_task_id}: Tripo task {tripo_task_id} status: {task_status}, progress: {progress}%")
+                
+                if task_status == "complete":
+                    result_url = normalized_result.get("result_url")
+                    if not result_url:
+                        error_message = "Tripo AI task complete but no result URL."
+                        logger.error(f"Celery task {celery_task_id}: {error_message}")
+                        raise CeleryTaskException(error_message)
+
+                    # Download from Tripo's temporary URL
+                    logger.info(f"Celery task {celery_task_id}: Downloading model from {result_url}")
+                    async with httpx.AsyncClient() as http_client:
+                        dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
+                        dl_response.raise_for_status()
+                        model_data_bytes = dl_response.content
+
+                    # Upload to our Supabase
+                    final_asset_url = await supabase_handler.upload_asset_to_storage(
+                        task_id=client_task_id,
+                        asset_type_plural="models",
+                        file_name="model.glb",
+                        asset_data=model_data_bytes,
+                        content_type="model/gltf-binary"
+                    )
+
+                    # Update DB record with final URL and complete status
+                    await supabase_handler.update_model_record(
+                        task_id=client_task_id,
+                        model_id=model_db_id,
+                        asset_url=final_asset_url,
+                        status="complete",
+                        ai_service_task_id=tripo_task_id,
+                        prompt=request_data.prompt,
+                        style=request_data.style
+                    )
+
+                    final_status = "complete"
+                    logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with final URL and status 'complete'.")
+                    
+                    return {
+                        'status': final_status,
+                        'result_url': final_asset_url,
+                        'db_record_id': model_db_id,
+                        'client_task_id': client_task_id,
+                        'tripo_task_id': tripo_task_id
+                    }
+                elif task_status in ["failed", "cancelled", "unknown"]:
+                    error_message = f"Tripo AI task failed with status: {task_status}"
                     logger.error(f"Celery task {celery_task_id}: {error_message}")
                     raise CeleryTaskException(error_message)
-
-                # Download from Tripo's temporary URL
-                logger.info(f"Celery task {celery_task_id}: Downloading model from {result_url}")
-                async with httpx.AsyncClient() as http_client:
-                    dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
-                    dl_response.raise_for_status()
-                    model_data_bytes = dl_response.content
-
-                # Upload to our Supabase
-                final_asset_url = await supabase_handler.upload_asset_to_storage(
-                    task_id=client_task_id,
-                    asset_type_plural="models",
-                    file_name="model.glb",
-                    asset_data=model_data_bytes,
-                    content_type="model/gltf-binary"
-                )
-
-                # Update DB record with final URL and complete status
-                await supabase_handler.update_model_record(
-                    task_id=client_task_id,
-                    model_id=model_db_id,
-                    asset_url=final_asset_url,
-                    status="complete",
-                    ai_service_task_id=tripo_task_id,
-                    prompt=request_data.prompt,
-                    style=request_data.style
-                )
-
-                final_status = "complete"
-                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with final URL and status 'complete'.")
                 
-                return {
-                    'status': final_status,
-                    'result_url': final_asset_url,
-                    'db_record_id': model_db_id,
-                    'client_task_id': client_task_id,
-                    'tripo_task_id': tripo_task_id
-                }
-            else:
-                error_message = f"Tripo AI task failed or unknown status: {final_result.get('status')}"
-                logger.error(f"Celery task {celery_task_id}: {error_message}")
-                raise CeleryTaskException(error_message)
+                # Task is still pending or processing, wait and poll again
+                poll_count += 1
+                await asyncio.sleep(1)
+            
+            # If we reach here, polling timed out
+            error_message = f"Tripo AI task polling timed out after {max_polls} polls"
+            logger.error(f"Celery task {celery_task_id}: {error_message}")
+            raise CeleryTaskException(error_message)
 
         except httpx.HTTPStatusError as e_http:
             error_message = f"HTTP error during Tripo call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
@@ -466,7 +505,7 @@ def generate_tripo_image_to_model_task(self, model_db_id: int, image_bytes_list:
         raise
 
 @celery_app.task(bind=True)
-def generate_tripo_sketch_to_model_task(self, model_db_id: int, image_bytes: bytes, original_filename: str, request_data_dict: dict):
+def generate_tripo_sketch_to_model_task(self, model_db_id: str, image_bytes: bytes, original_filename: str, request_data_dict: dict):
     """Celery task to call Tripo AI sketch-to-model and update DB with Tripo task ID."""
     client_task_id = request_data_dict.get("task_id")
     celery_task_id = self.request.id
@@ -509,57 +548,76 @@ def generate_tripo_sketch_to_model_task(self, model_db_id: int, image_bytes: byt
                 status="processing"
             )
 
-            # Wait for completion and get result
-            final_result = await tripo_client.poll_tripo_task_status(tripo_task_id)
+            # Wait for completion and get result - implement proper polling loop
+            max_polls = 180  # 3 minutes with 1-second intervals
+            poll_count = 0
             
-            if final_result.get("status") == "complete":
-                result_url = final_result.get("result_url")
-                if not result_url:
-                    error_message = "Tripo AI task complete but no result URL."
+            while poll_count < max_polls:
+                tripo_response = await tripo_client.poll_tripo_task_status(tripo_task_id)
+                normalized_result = tripo_client.normalize_tripo_status(tripo_response)
+                
+                task_status = normalized_result.get("status")
+                progress = normalized_result.get("progress", 0)
+                
+                logger.info(f"Celery task {celery_task_id}: Tripo task {tripo_task_id} status: {task_status}, progress: {progress}%")
+                
+                if task_status == "complete":
+                    result_url = normalized_result.get("result_url")
+                    if not result_url:
+                        error_message = "Tripo AI task complete but no result URL."
+                        logger.error(f"Celery task {celery_task_id}: {error_message}")
+                        raise CeleryTaskException(error_message)
+
+                    # Download from Tripo's temporary URL
+                    logger.info(f"Celery task {celery_task_id}: Downloading model from {result_url}")
+                    async with httpx.AsyncClient() as http_client:
+                        dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
+                        dl_response.raise_for_status()
+                        model_data_bytes = dl_response.content
+
+                    # Upload to our Supabase
+                    final_asset_url = await supabase_handler.upload_asset_to_storage(
+                        task_id=client_task_id,
+                        asset_type_plural="models",
+                        file_name="model.glb",
+                        asset_data=model_data_bytes,
+                        content_type="model/gltf-binary"
+                    )
+
+                    # Update DB record with final URL and complete status
+                    await supabase_handler.update_model_record(
+                        task_id=client_task_id,
+                        model_id=model_db_id,
+                        asset_url=final_asset_url,
+                        status="complete",
+                        ai_service_task_id=tripo_task_id,
+                        prompt=request_data.prompt,
+                        style=request_data.style
+                    )
+
+                    final_status = "complete"
+                    logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with final URL and status 'complete'.")
+                    
+                    return {
+                        'status': final_status,
+                        'result_url': final_asset_url,
+                        'db_record_id': model_db_id,
+                        'client_task_id': client_task_id,
+                        'tripo_task_id': tripo_task_id
+                    }
+                elif task_status in ["failed", "cancelled", "unknown"]:
+                    error_message = f"Tripo AI task failed with status: {task_status}"
                     logger.error(f"Celery task {celery_task_id}: {error_message}")
                     raise CeleryTaskException(error_message)
-
-                # Download from Tripo's temporary URL
-                logger.info(f"Celery task {celery_task_id}: Downloading model from {result_url}")
-                async with httpx.AsyncClient() as http_client:
-                    dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
-                    dl_response.raise_for_status()
-                    model_data_bytes = dl_response.content
-
-                # Upload to our Supabase
-                final_asset_url = await supabase_handler.upload_asset_to_storage(
-                    task_id=client_task_id,
-                    asset_type_plural="models",
-                    file_name="model.glb",
-                    asset_data=model_data_bytes,
-                    content_type="model/gltf-binary"
-                )
-
-                # Update DB record with final URL and complete status
-                await supabase_handler.update_model_record(
-                    task_id=client_task_id,
-                    model_id=model_db_id,
-                    asset_url=final_asset_url,
-                    status="complete",
-                    ai_service_task_id=tripo_task_id,
-                    prompt=request_data.prompt,
-                    style=request_data.style
-                )
-
-                final_status = "complete"
-                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with final URL and status 'complete'.")
                 
-                return {
-                    'status': final_status,
-                    'result_url': final_asset_url,
-                    'db_record_id': model_db_id,
-                    'client_task_id': client_task_id,
-                    'tripo_task_id': tripo_task_id
-                }
-            else:
-                error_message = f"Tripo AI task failed or unknown status: {final_result.get('status')}"
-                logger.error(f"Celery task {celery_task_id}: {error_message}")
-                raise CeleryTaskException(error_message)
+                # Task is still pending or processing, wait and poll again
+                poll_count += 1
+                await asyncio.sleep(1)
+            
+            # If we reach here, polling timed out
+            error_message = f"Tripo AI task polling timed out after {max_polls} polls"
+            logger.error(f"Celery task {celery_task_id}: {error_message}")
+            raise CeleryTaskException(error_message)
 
         except httpx.HTTPStatusError as e_http:
             error_message = f"HTTP error during Tripo call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
@@ -602,7 +660,7 @@ def generate_tripo_sketch_to_model_task(self, model_db_id: int, image_bytes: byt
         raise
 
 @celery_app.task(bind=True)
-def generate_tripo_refine_model_task(self, model_db_id: int, model_bytes: bytes, original_filename: str, request_data_dict: dict):
+def generate_tripo_refine_model_task(self, model_db_id: str, model_bytes: bytes, original_filename: str, request_data_dict: dict):
     """Celery task to call Tripo AI refine-model and update DB."""
     client_task_id = request_data_dict.get("task_id")
     celery_task_id = self.request.id
@@ -645,56 +703,75 @@ def generate_tripo_refine_model_task(self, model_db_id: int, model_bytes: bytes,
                 status="processing"
             )
 
-            # Wait for completion and get result
-            final_result = await tripo_client.poll_tripo_task_status(tripo_task_id)
+            # Wait for completion and get result - implement proper polling loop
+            max_polls = 180  # 3 minutes with 1-second intervals
+            poll_count = 0
             
-            if final_result.get("status") == "complete":
-                result_url = final_result.get("result_url")
-                if not result_url:
-                    error_message = "Tripo AI task complete but no result URL."
+            while poll_count < max_polls:
+                tripo_response = await tripo_client.poll_tripo_task_status(tripo_task_id)
+                normalized_result = tripo_client.normalize_tripo_status(tripo_response)
+                
+                task_status = normalized_result.get("status")
+                progress = normalized_result.get("progress", 0)
+                
+                logger.info(f"Celery task {celery_task_id}: Tripo task {tripo_task_id} status: {task_status}, progress: {progress}%")
+                
+                if task_status == "complete":
+                    result_url = normalized_result.get("result_url")
+                    if not result_url:
+                        error_message = "Tripo AI task complete but no result URL."
+                        logger.error(f"Celery task {celery_task_id}: {error_message}")
+                        raise CeleryTaskException(error_message)
+
+                    # Download from Tripo's temporary URL
+                    logger.info(f"Celery task {celery_task_id}: Downloading refined model from {result_url}")
+                    async with httpx.AsyncClient() as http_client:
+                        dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
+                        dl_response.raise_for_status()
+                        model_data_bytes = dl_response.content
+
+                    # Upload to our Supabase
+                    final_asset_url = await supabase_handler.upload_asset_to_storage(
+                        task_id=client_task_id,
+                        asset_type_plural="models",
+                        file_name="refined_model.glb",
+                        asset_data=model_data_bytes,
+                        content_type="model/gltf-binary"
+                    )
+
+                    # Update DB record with final URL and complete status
+                    await supabase_handler.update_model_record(
+                        task_id=client_task_id,
+                        model_id=model_db_id,
+                        asset_url=final_asset_url,
+                        status="complete",
+                        ai_service_task_id=tripo_task_id,
+                        prompt=request_data.prompt
+                    )
+
+                    final_status = "complete"
+                    logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with refined model URL and status 'complete'.")
+                    
+                    return {
+                        'status': final_status,
+                        'result_url': final_asset_url,
+                        'db_record_id': model_db_id,
+                        'client_task_id': client_task_id,
+                        'tripo_task_id': tripo_task_id
+                    }
+                elif task_status in ["failed", "cancelled", "unknown"]:
+                    error_message = f"Tripo AI task failed with status: {task_status}"
                     logger.error(f"Celery task {celery_task_id}: {error_message}")
                     raise CeleryTaskException(error_message)
-
-                # Download from Tripo's temporary URL
-                logger.info(f"Celery task {celery_task_id}: Downloading refined model from {result_url}")
-                async with httpx.AsyncClient() as http_client:
-                    dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
-                    dl_response.raise_for_status()
-                    model_data_bytes = dl_response.content
-
-                # Upload to our Supabase
-                final_asset_url = await supabase_handler.upload_asset_to_storage(
-                    task_id=client_task_id,
-                    asset_type_plural="models",
-                    file_name="refined_model.glb",
-                    asset_data=model_data_bytes,
-                    content_type="model/gltf-binary"
-                )
-
-                # Update DB record with final URL and complete status
-                await supabase_handler.update_model_record(
-                    task_id=client_task_id,
-                    model_id=model_db_id,
-                    asset_url=final_asset_url,
-                    status="complete",
-                    ai_service_task_id=tripo_task_id,
-                    prompt=request_data.prompt
-                )
-
-                final_status = "complete"
-                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with refined model URL and status 'complete'.")
                 
-                return {
-                    'status': final_status,
-                    'result_url': final_asset_url,
-                    'db_record_id': model_db_id,
-                    'client_task_id': client_task_id,
-                    'tripo_task_id': tripo_task_id
-                }
-            else:
-                error_message = f"Tripo AI refine task failed or unknown status: {final_result.get('status')}"
-                logger.error(f"Celery task {celery_task_id}: {error_message}")
-                raise CeleryTaskException(error_message)
+                # Task is still pending or processing, wait and poll again
+                poll_count += 1
+                await asyncio.sleep(1)
+            
+            # If we reach here, polling timed out
+            error_message = f"Tripo AI task polling timed out after {max_polls} polls"
+            logger.error(f"Celery task {celery_task_id}: {error_message}")
+            raise CeleryTaskException(error_message)
 
         except httpx.HTTPStatusError as e_http:
             error_message = f"HTTP error during Tripo refine call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"

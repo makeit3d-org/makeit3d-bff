@@ -102,7 +102,7 @@ async def poll_task_status(task_id: str, service: str, poll_interval: int = 2, t
                     logger.info(f"Task {task_id} complete.")
                     
                     # For Tripo tasks, ensure we have an asset_url (model_url)
-                    if service.lower() == 'tripo' and not status_data.get('asset_url'):
+                    if service.lower() == 'tripoai' and not status_data.get('asset_url'):
                         # If there's no asset_url but the task is complete, poll one more time
                         # Sometimes the model_url isn't immediately available
                         logger.warning(f"Task {task_id} marked as complete but missing asset_url. Polling once more...")
@@ -119,7 +119,7 @@ async def poll_task_status(task_id: str, service: str, poll_interval: int = 2, t
                     pytest.fail(f"{service.capitalize()} task {task_id} failed.")
                 
                 # If task is still processing but 100% complete for Tripo, check if it has a model URL
-                if service.lower() == 'tripo' and status_data.get('progress') == 100:
+                if service.lower() == 'tripoai' and status_data.get('progress') == 100:
                     if status_data.get('asset_url'):
                         logger.info(f"Task {task_id} at 100% with asset_url. Considering complete.")
                         return status_data
@@ -186,8 +186,7 @@ async def test_generate_image_to_image(request):
         "prompt": prompt,
         "style": style,
         "n": 1,
-        "background": background,
-        "output_image_size": "1024x1024" # Added to match Pydantic schema
+        "background": background
     }
 
     logger.info(f"Calling {endpoint} with JSON data: {request_data}")
@@ -266,7 +265,7 @@ async def test_generate_text_to_model(request):
 
     # Poll for task completion and get result URL
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "tripo", total_timeout=300.0)
+    task_result_data = await poll_task_status(celery_task_id, "tripoai", total_timeout=300.0)
     logger.info(f"TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
     logger.info(f"Full task_result_data: {task_result_data}")
 
@@ -343,7 +342,7 @@ async def test_generate_image_to_model(request):
 
     # Poll for task completion
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "tripo", total_timeout=300.0)
+    task_result_data = await poll_task_status(celery_task_id, "tripoai", total_timeout=300.0)
     logger.info(f"TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
 
     model_url = task_result_data.get('asset_url') # Expecting 'asset_url'
@@ -414,7 +413,7 @@ async def test_generate_sketch_to_model(request):
     
     # Poll for task completion
     tripo_polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "tripo", total_timeout=300.0)
+    task_result_data = await poll_task_status(celery_task_id, "tripoai", total_timeout=300.0)
     logger.info(f"TRIPO TASK PROCESSING TIME: {time.time() - tripo_polling_start:.2f}s")
     
     model_url = task_result_data.get('asset_url') # Expecting 'asset_url'
@@ -439,7 +438,7 @@ async def test_supabase_upload_and_metadata(request):
     logger.info(f"Running {request.node.name}...")
 
     # 1. Download a small public image
-    image_to_download_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-concept.png"
+    image_to_download_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg"
     logger.info(f"Downloading image from {image_to_download_url} for Supabase test.")
     download_start = time.time()
     async with httpx.AsyncClient() as client:
@@ -450,7 +449,7 @@ async def test_supabase_upload_and_metadata(request):
 
     # 2. Upload the image to Supabase Storage (using makeit3d-app-assets bucket)
     test_task_id = f"test-task-{uuid.uuid4()}"
-    unique_file_name = f"test_concept.png"  # Changed to PNG to match downloaded file
+    unique_file_name = f"test_concept.jpg"  # Changed back to JPG to match downloaded file
     logger.info(f"Uploading image to Supabase Storage: concepts/{test_task_id}/{unique_file_name}")
     upload_start = time.time()
     full_asset_url = await supabase_handler.upload_asset_to_storage(
@@ -458,7 +457,7 @@ async def test_supabase_upload_and_metadata(request):
         asset_type_plural="concepts",
         file_name=unique_file_name,
         asset_data=image_content,
-        content_type="image/png"  # Changed to PNG
+        content_type="image/jpeg"  # Changed back to JPEG
     )
     logger.info(f"Image uploaded to: {full_asset_url}")
     logger.info(f"UPLOAD TIME: {time.time() - upload_start:.2f}s")
@@ -567,12 +566,14 @@ async def test_generate_multiview_to_model(request):
 
     # URLs for multiview images in [front, left, back, right] order as per API spec
     multiview_image_urls = [
-        "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-concept.png",  # front
-        "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg",        # left (using different image for demonstration)
+        "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-front-concept.png",  # front
+        "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-left-concept.png",   # left
+        "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-back--concept.png",  # back
+        "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-right-concept.png", # right
     ]
 
     logger.info(f"Running {request.node.name} for task_id: {client_task_id} with {len(multiview_image_urls)} images")
-    logger.info(f"Multiview image ordering: [front, left] - testing partial multiview (2 out of 4 views)")
+    logger.info(f"Multiview image ordering: [front, left, back, right] - testing full 4-view multiview")
 
     # 1. Download and upload all images to Supabase (simulating client's multiview assets)
     input_supabase_urls = []
@@ -625,7 +626,7 @@ async def test_generate_multiview_to_model(request):
 
     # Poll for task completion (multiview may take longer)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "tripo", total_timeout=450.0)  # Longer timeout for multiview
+    task_result_data = await poll_task_status(celery_task_id, "tripoai", total_timeout=450.0)  # Longer timeout for multiview
     logger.info(f"MULTIVIEW TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
 
     model_url = task_result_data.get('asset_url') # Expecting 'asset_url'

@@ -6,6 +6,9 @@ import logging
 import uuid # Import uuid for synchronous mode
 import base64 # Import base64 for synchronous mode
 
+# Test user ID for endpoints when auth is not implemented
+TEST_USER_ID = "00000000-0000-4000-8000-000000000001"
+
 # Explicitly import required schemas from the module
 from app.schemas.generation_schemas import (
     ImageToImageRequest,
@@ -51,9 +54,9 @@ async def generate_image_to_image_endpoint(
     request: Request, # FastAPI request object for context if needed (e.g., user)
     request_data: ImageToImageRequest # Updated to use Pydantic model from request body
 ):
-    """Initiates concept image generation from a provided image using OpenAI."""
+    """Initiates concept image generation from an input image using OpenAI."""
     logger.info(f"Received request for /generate/image-to-image for task_id: {request_data.task_id}")
-    user_id_from_auth = None # Placeholder for user auth integration
+    user_id_from_auth = TEST_USER_ID
 
     if settings.sync_mode:
         logger.info(f"Running OpenAI image-to-image task synchronously for client task_id: {request_data.task_id}.")
@@ -221,7 +224,7 @@ async def generate_image_to_image_endpoint(
 async def generate_text_to_model_endpoint(request: Request, request_data: TextToModelRequest):
     """Initiates 3D model generation from text using Tripo AI."""
     logger.info(f"Received request for /generate/text-to-model for task_id: {request_data.task_id}")
-    user_id_from_auth = None # Placeholder for auth integration
+    user_id_from_auth = TEST_USER_ID
 
     if settings.sync_mode:
         logger.info(f"Running Tripo text-to-model task synchronously for client task_id: {request_data.task_id}.")
@@ -233,7 +236,7 @@ async def generate_text_to_model_endpoint(request: Request, request_data: TextTo
                 prompt=request_data.prompt,
                 style=request_data.style,
                 status="processing",
-                user_id=user_id_from_auth,
+                user_id=user_id_from_auth,  # Now None instead of invalid UUID
                 ai_service_task_id=operation_id,
                 metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality"})
             )
@@ -330,7 +333,7 @@ async def generate_text_to_model_endpoint(request: Request, request_data: TextTo
 async def generate_image_to_model_endpoint(request: Request, request_data: ImageToModelRequest):
     """Initiates 3D model generation from multiple images (Supabase URLs) using Tripo AI."""
     logger.info(f"Received request for /generate/image-to-model for task_id: {request_data.task_id}")
-    user_id_from_auth = None # Placeholder
+    user_id_from_auth = TEST_USER_ID
 
     if settings.sync_mode:
         logger.info(f"Running Tripo image-to-model task synchronously for client task_id: {request_data.task_id}.")
@@ -357,6 +360,7 @@ async def generate_image_to_model_endpoint(request: Request, request_data: Image
                 status="processing",
                 user_id=user_id_from_auth,
                 ai_service_task_id=operation_id,
+                source_concept_image_id=None,  # No concept image in direct image-to-model workflow
                 metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "orientation"})
             )
             model_db_id = sync_db_record["id"]
@@ -422,9 +426,9 @@ async def generate_image_to_model_endpoint(request: Request, request_data: Image
                 style=request_data.style,
                 status="pending",
                 user_id=user_id_from_auth,
+                source_concept_image_id=None,  # No concept image in direct image-to-model workflow
                 metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "orientation"})
-                # source_input_asset_id might need to be a list or handled if multiple inputs map to one model record.
-                # For now, the schema has one source_input_asset_id. This might need refinement based on how inputs are tracked.
+                # Note: source_input_asset_id could be used to track input assets if we create input_assets records
             )
             model_db_id = db_record["id"]
             logger.info(f"Created model record {model_db_id} for image-to-model task {request_data.task_id}")
@@ -459,7 +463,7 @@ async def generate_image_to_model_endpoint(request: Request, request_data: Image
 async def generate_sketch_to_model_endpoint(request: Request, request_data: SketchToModelRequest):
     """Initiates 3D model generation from a single sketch image (Supabase URL) using Tripo AI."""
     logger.info(f"Received request for /generate/sketch-to-model for task_id: {request_data.task_id}")
-    user_id_from_auth = None # Placeholder
+    user_id_from_auth = TEST_USER_ID
 
     if settings.sync_mode:
         logger.info(f"Running Tripo sketch-to-model task synchronously for client task_id: {request_data.task_id}.")
@@ -476,6 +480,7 @@ async def generate_sketch_to_model_endpoint(request: Request, request_data: Sket
                 status="processing",
                 user_id=user_id_from_auth,
                 ai_service_task_id=operation_id,
+                source_concept_image_id=None,  # No concept image in direct image-to-model workflow
                 metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "orientation"})
                 # Potentially add source_input_asset_id if the sketch corresponds to an input_assets entry
             )
@@ -525,6 +530,7 @@ async def generate_sketch_to_model_endpoint(request: Request, request_data: Sket
                 style=request_data.style,
                 status="pending",
                 user_id=user_id_from_auth,
+                source_concept_image_id=None,  # No concept image in direct image-to-model workflow
                 metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "orientation"})
                 # Potentially add source_input_asset_id
             )
@@ -558,9 +564,9 @@ async def generate_sketch_to_model_endpoint(request: Request, request_data: Sket
 @router.post("/refine-model", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_TRIPO_REFINE_REQUESTS_PER_MINUTE}/minute")
 async def refine_model_endpoint(request: Request, request_data: RefineModelRequest):
-    """Initiates refinement of a 3D model (from Supabase URL) using Tripo AI."""
-    logger.info(f"Received request for /generate/refine-model for task_id: {request_data.task_id}")
-    user_id_from_auth = None # Placeholder
+    """Refines an existing 3D model using Tripo AI."""
+    logger.info(f"Received request for /refine-model for task_id: {request_data.task_id}")
+    user_id_from_auth = TEST_USER_ID
 
     if settings.sync_mode:
         logger.info(f"Running Tripo refine-model task synchronously for client task_id: {request_data.task_id}.")

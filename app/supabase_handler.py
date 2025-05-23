@@ -178,9 +178,8 @@ async def update_concept_image_record(
     """
     table_name = settings.concept_images_table_name
     update_data = {
-        "task_id": task_id, # Ensuring task_id can also be updated if needed, though typically static for a record
-        "status": status,
-        "updated_at": "now()" 
+        "task_id": task_id,
+        "status": status
     }
     if asset_url is not None: # Only add if provided
         update_data["asset_url"] = asset_url
@@ -262,8 +261,7 @@ async def update_model_record(
     table_name = settings.models_table_name
     update_data = {
         "task_id": task_id,
-        "status": status,
-        "updated_at": "now()"
+        "status": status
     }
     if asset_url is not None:
         update_data["asset_url"] = asset_url
@@ -279,7 +277,7 @@ async def update_model_record(
         update_data["style"] = style
     if metadata is not None:
         update_data["metadata"] = metadata
-    
+
     try:
         def _update_sync():
             response = (
@@ -316,6 +314,7 @@ async def create_concept_image_record(
     status: str = "pending", # Default initial status
     ai_service_task_id: str | None = None,
     source_input_asset_id: str | None = None,
+    asset_url: str = "pending", # Placeholder value since this field is required in DB
     metadata: dict | None = None
 ) -> dict:
     """Creates a new record in the concept_images table.
@@ -328,6 +327,7 @@ async def create_concept_image_record(
         status: Initial status of the record (defaults to 'pending').
         ai_service_task_id: Optional ID from the AI service.
         source_input_asset_id: Optional ID of the input_asset record used as source.
+        asset_url: Asset URL (defaults to "pending" placeholder since DB requires NOT NULL).
         metadata: Optional additional metadata.
 
     Returns:
@@ -343,6 +343,7 @@ async def create_concept_image_record(
         "task_id": task_id,
         "prompt": prompt,
         "status": status,
+        "asset_url": asset_url,  # Always include asset_url since it's required
     }
     if user_id is not None:
         insert_data["user_id"] = user_id
@@ -396,6 +397,7 @@ async def create_model_record(
     ai_service_task_id: str | None = None,
     source_input_asset_id: str | None = None, # If generating model directly from an input asset
     source_concept_image_id: str | None = None, # If generating model from a concept image
+    asset_url: str = "pending", # Placeholder value since this field is required in DB
     metadata: dict | None = None
 ) -> dict:
     """Creates a new record in the models table.
@@ -409,6 +411,7 @@ async def create_model_record(
         ai_service_task_id: Optional ID from the AI service.
         source_input_asset_id: Optional ID of the input_asset used directly.
         source_concept_image_id: Optional ID of the concept_image record used as source.
+        asset_url: Asset URL (defaults to "pending" placeholder since DB requires NOT NULL).
         metadata: Optional additional metadata.
 
     Returns:
@@ -424,6 +427,7 @@ async def create_model_record(
         "task_id": task_id,
         "prompt": prompt,
         "status": status,
+        "asset_url": asset_url,  # Always include asset_url since it's required
     }
     if user_id is not None:
         insert_data["user_id"] = user_id

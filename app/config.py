@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     models_table_name: str = "models"
     generated_assets_bucket_name: str = "makeit3d-app-assets"
 
+    # Tripo AI Configuration
+    TRIPO_DOWNLOAD_TIMEOUT_SECONDS: int = 60  # Timeout for downloading models from Tripo URLs
+
     # Add other settings here as needed
 
     # API Rate Limiting for BFF endpoints
