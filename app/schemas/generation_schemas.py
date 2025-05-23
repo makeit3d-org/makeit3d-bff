@@ -6,6 +6,8 @@ from typing_extensions import Annotated # Use typing_extensions for Annotated fo
 
 class ImageToImageRequest(BaseModel):
     """Request schema for image-to-image generation (OpenAI)."""
+    task_id: str # Client-generated main task ID
+    input_image_asset_url: str # Supabase URL to the input image
     prompt: str
     style: Optional[str] = None # Retain for potential frontend use or different models
     n: Optional[int] = Field(default=1, ge=1, le=10) # Number of images, default 1
@@ -21,6 +23,7 @@ class ImageToImageRequest(BaseModel):
 
 class TextToModelRequest(BaseModel):
     """Corresponds to Tripo AI text_to_model API."""
+    task_id: str # Client-generated main task ID
     prompt: str
     style: Optional[str] = None
     texture: bool = True
@@ -37,7 +40,8 @@ class FileInfo(BaseModel):
 
 class ImageToModelRequest(BaseModel):
     """Corresponds to Tripo AI multiview_to_model or image_to_model API."""
-    image_urls: List[str]  # Will be transformed to file/files in the client
+    task_id: str # Client-generated main task ID
+    input_image_asset_urls: List[str]  # List of Supabase URLs to input images
     prompt: Optional[str] = None
     style: Optional[str] = None
     texture: bool = True
@@ -50,7 +54,8 @@ class ImageToModelRequest(BaseModel):
 
 class SketchToModelRequest(BaseModel):
     """Corresponds to Tripo AI image_to_model API."""
-    image_url: str  # Will be transformed to file in the client
+    task_id: str # Client-generated main task ID
+    input_sketch_asset_url: str # Supabase URL to the input sketch
     prompt: Optional[str] = None
     style: Optional[str] = None
     texture: bool = True
@@ -63,24 +68,22 @@ class SketchToModelRequest(BaseModel):
 
 class RefineModelRequest(BaseModel):
     """Corresponds to Tripo AI refine_model API."""
-    draft_model_task_id: str
-
-class SelectConceptRequest(BaseModel):
-    """For converting a 2D concept to 3D model."""
-    concept_task_id: str  # Original image-to-image task ID
-    selected_image_url: str  # URL of the selected concept image
-    texture: bool = True
-    pbr: Optional[bool] = None
-    model_version: Optional[str] = None
-    face_limit: Optional[int] = None
-    auto_size: Optional[bool] = None
-    texture_quality: Optional[Literal["standard", "detailed"]] = None
+    task_id: str # Client-generated main workspace task ID
+    input_model_asset_url: str # Full Supabase URL to the 3D model that needs to be refined
+    prompt: Optional[str] = None # Text prompt to guide the refinement process
+    draft_model_task_id: Optional[str] = None # Optional Tripo task ID if input model is from previous Tripo task
+    texture: bool = True # Whether to generate/regenerate textures for the model
+    pbr: Optional[bool] = None # Enable PBR texturing
+    model_version: Optional[str] = None # Tripo AI model version for refinement
+    face_limit: Optional[int] = None # Limit number of faces on output refined model
+    auto_size: Optional[bool] = None # Automatically scale refined model to real-world dimensions
+    texture_quality: Optional[Literal["standard", "detailed"]] = None # Texture quality for refined model
 
 # Schemas for responses
 
 class TaskIdResponse(BaseModel):
-    """Standard task ID response."""
-    task_id: str
+    """Standard task ID response. The celery_task_id is used for polling the status of the current AI operation."""
+    celery_task_id: str
 
 class TripoApiResponse(BaseModel):
     """Standard Tripo API response structure."""
@@ -101,13 +104,11 @@ class ImageToImageResponse(BaseModel):
     image_references: List[Dict[str, str]] # Change to list of dictionaries for bucket and file_path
 
 class TaskStatusResponse(BaseModel):
-    """Standardized task status response used across both OpenAI and Tripo."""
-    status: str # e.g., pending, processing, completed, failed
-    progress: Optional[float] = None # 0-100 for Tripo, None for OpenAI
-    result_url: Optional[str] = None # Temporary URL for the generated asset
-    result: Optional[Dict[str, Any]] = None # Add an optional result field to hold varied results
-    # For completed OpenAI image tasks, 'result' will contain 'image_references': List[Dict[str, str]]
-    # For completed Tripo tasks, result_url will point to the model file
+    """Response schema for the task status polling endpoint."""
+    task_id: str # The Celery task ID of the job being polled
+    status: str # pending, processing, complete, failed
+    asset_url: Optional[str] = None # Full Supabase URL to the generated asset (only present if status is 'complete')
+    error: Optional[str] = None # Error message if the task failed
 
 class ErrorResponse(BaseModel):
     detail: str
@@ -115,10 +116,5 @@ class ErrorResponse(BaseModel):
 # OpenAI schemas
 
 class OpenAIResult(BaseModel):
-    image_data: List[str]
-
-class OpenAICompletedTaskStatusResponse(BaseModel):
-    status: str = "completed"
-    progress: float = 100.0
-    result_url: Optional[str] = None # Not applicable for OpenAI concepts in this flow
-    result: OpenAIResult 
+    image_data: List[str] # This might need to change if we are returning Supabase URLs directly
+    # If returning Supabase URLs, this might be: image_supabase_urls: List[str] 

@@ -25,6 +25,7 @@ from app.supabase_client import (
 )
 # Import settings
 from app.config import settings
+import app.supabase_handler as supabase_handler # New Supabase handler
 
 logger = logging.getLogger(__name__)
 
@@ -42,125 +43,283 @@ class CeleryTaskException(Exception):
 
 # Convert task to non-async function that runs the async function via asyncio.run
 @celery_app.task(bind=True, rate_limit=settings.CELERY_OPENAI_TASK_RATE_LIMIT)
-def generate_openai_image_task(self, image_bytes: bytes, image_filename: str, request_data_dict: dict):
-    """Celery task to call OpenAI image generation API, upload to Supabase, and store metadata."""
-    task_id = self.request.id
-    logger.info(f"Celery task {task_id}: Starting OpenAI image generation and Supabase upload.")
+def generate_openai_image_task(self, concept_image_db_id: int, image_bytes: bytes, original_filename: str, request_data_dict: dict):
+    """Celery task to call OpenAI image generation, upload to Supabase, and update the DB record."""
+    # client_task_id is the overall task_id provided by the client, used for folder structures etc.
+    client_task_id = request_data_dict.get("task_id")
+    celery_task_id = self.request.id # This is Celery's internal task ID
     
-    # Define the async function that will be run
+    logger.info(f"Celery task {celery_task_id} for DB record {concept_image_db_id} (Client Task ID: {client_task_id}): Starting OpenAI image generation.")
+    
     async def process_openai_image():
-        uploaded_image_download_urls = []
+        uploaded_supabase_urls = []
+        final_status = "failed" # Default to failed, update on success
+        error_message = None
         
         try:
             request_data = ImageToImageRequest(**request_data_dict)
 
+            # Update DB record to 'processing'
+            await supabase_handler.update_concept_image_record(
+                task_id=client_task_id, # Use client_task_id for identification if needed
+                concept_image_id=concept_image_db_id,
+                status="processing",
+                # ai_service_task_id is already set by the router to celery_task_id
+            )
+            logger.info(f"Celery task {celery_task_id}: Updated DB record {concept_image_db_id} status to 'processing'.")
+
             openai_response = await openai_client.generate_image_to_image(
-                image_bytes, image_filename, request_data
+                image_bytes, original_filename, request_data # request_data here is the Pydantic model
             )
 
-            if inspect.iscoroutine(openai_response):
-                logger.error(f"Celery task {task_id}: DEBUG CHECK FAILED - openai_response IS A COROUTINE AFTER AWAIT!")
-                # This should not happen if openai_client.generate_image_to_image is correctly awaited and returns data
-                raise CeleryTaskException(f"Internal error: OpenAI response was a coroutine.")
+            b64_images = [item.get("b64_json") for item in openai_response.get("data", []) if item.get("b64_json")]
+            if not b64_images:
+                error_message = "OpenAI did not return any images."
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
 
-            b64_images = [item["b64_json"] for item in openai_response.get("data", [])]
-            logger.info(f"Celery task {task_id}: OpenAI image generation completed, processing {len(b64_images)} images.")
+            logger.info(f"Celery task {celery_task_id}: OpenAI generation complete, processing {len(b64_images)} images.")
 
-            bucket_name = "concept-images"
             for i, b64_image in enumerate(b64_images):
-                current_image_bytes = base64.b64decode(b64_image)
-                file_name_in_bucket = f"{task_id}/{i}.png"
+                try:
+                    current_image_bytes = base64.b64decode(b64_image)
+                    # Filename for Supabase storage, e.g., "0.png", "1.png"
+                    # Path construction (concepts/client_task_id/0.png) is handled by upload_asset_to_storage
+                    file_name_in_bucket = f"{i}.png" 
+                    
+                    logger.info(f"Celery task {celery_task_id}: Uploading image {i} ({file_name_in_bucket}) to Supabase.")
+                    
+                    supabase_url = await supabase_handler.upload_asset_to_storage(
+                        task_id=client_task_id, 
+                        asset_type_plural="concepts",
+                        file_name=file_name_in_bucket,
+                        asset_data=current_image_bytes,
+                        content_type="image/png"
+                    )
+                    uploaded_supabase_urls.append(supabase_url)
+                    logger.info(f"Celery task {celery_task_id}: Uploaded image {i} to {supabase_url}")
 
-                # Upload to Supabase Storage using sync_upload_image_to_storage
-                # We're in an async function, so use asyncio.to_thread for sync operations
-                logger.info(f"Celery task {task_id}: Attempting to upload {file_name_in_bucket} to Supabase.")
-                file_path = await asyncio.to_thread(
-                    sync_upload_image_to_storage,
-                    file_name_in_bucket, 
-                    current_image_bytes, 
-                    bucket_name
-                )
-                logger.info(f"Celery task {task_id}: Uploaded image {i} to {bucket_name}/{file_path}")
+                    # If this is the first image (or only one if n=1), update the main DB record.
+                    # The initial DB record (concept_image_db_id) is intended for one primary concept image.
+                    # If n > 1, additional images are uploaded, but only the first updates this specific record's asset_url.
+                    # A more robust solution for n > 1 might involve creating separate DB records for each,
+                    # or storing a list of URLs. This matches the simplified sync path for now.
+                    if i == 0:
+                        await supabase_handler.update_concept_image_record(
+                            task_id=client_task_id,
+                            concept_image_id=concept_image_db_id,
+                            asset_url=supabase_url, # Set the asset_url for the primary/first image
+                            status="complete", # Set status to complete
+                            # Other fields like prompt, style are already set or can be re-set if needed
+                            prompt=request_data.prompt,
+                            style=request_data.style,
+                        )
+                        final_status = "complete" # Mark as complete if at least one image processed successfully
+                        logger.info(f"Celery task {celery_task_id}: Updated DB record {concept_image_db_id} with asset_url {supabase_url} and status 'complete'.")
+                
+                except Exception as upload_exc:
+                    # Log error for this specific image upload, but continue if others might succeed
+                    logger.error(f"Celery task {celery_task_id}: Failed to upload image {i} for DB record {concept_image_db_id}: {upload_exc}", exc_info=True)
+                    # If this was the primary image (i==0), the final_status will remain 'failed' unless a subsequent one succeeds (not current logic for i==0)
+                    # For now, if the i==0 upload fails, the overall task for this record is effectively failed.
+                    if i == 0:
+                        error_message = f"Failed to upload primary image: {upload_exc}"
+                        # No need to raise here, the outer try/except will handle final DB update
+                        break # Stop processing further images if the primary one fails to upload
 
-                download_url = f"{settings.bff_base_url}/images/{bucket_name}/{file_path}"
-                uploaded_image_download_urls.append(download_url)
+            if not uploaded_supabase_urls: # This means either no images returned or all uploads failed
+                if not error_message: error_message = "No images were successfully uploaded."
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                # Ensure CeleryTaskException is raised if we haven't already from OpenAI returning no images
+                if not isinstance(error_message, CeleryTaskException): # Check if already raised
+                     raise CeleryTaskException(error_message)
 
-                # Create database record using asyncio.to_thread
-                logger.info(f"Celery task {task_id}: Attempting to create DB record for {file_name_in_bucket}.")
-                await asyncio.to_thread(
-                    sync_create_concept_image_record,
-                    task_id, 
-                    download_url, 
-                    bucket_name, 
-                    request_data.prompt, 
-                    request_data.style
-                )
-                logger.info(f"Celery task {task_id}: Created database record for image {i}.")
-
-            if not uploaded_image_download_urls:
-                raise CeleryTaskException("No images were successfully processed and uploaded after OpenAI generation.")
-
-            logger.info(f"Celery task {task_id}: Finished processing and uploading images.")
-            return {'image_urls': uploaded_image_download_urls}
+            logger.info(f"Celery task {celery_task_id}: Finished processing. Final status for DB record {concept_image_db_id} will be '{final_status}'.")
+            # The actual return value for Celery might be simple, as main state is in DB
+            return {'status': final_status, 'image_urls': uploaded_supabase_urls, 'db_record_id': concept_image_db_id}
 
         except httpx.HTTPStatusError as e_http:
-            err_msg = f"HTTP error during OpenAI call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
-            logger.error(f"Celery task {task_id}: {err_msg}", exc_info=True)
-            raise CeleryTaskException(err_msg) # Re-raise as a simple, serializable exception
-
-        except (SupabaseStorageError, SupabaseDBError) as e_supabase:
-            err_msg = f"Supabase client error: {type(e_supabase).__name__} - {str(e_supabase)}"
-            logger.error(f"Celery task {task_id}: {err_msg}", exc_info=True)
-            raise CeleryTaskException(err_msg)
-            
+            error_message = f"HTTP error during OpenAI call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
+            logger.error(f"Celery task {celery_task_id} for DB {concept_image_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        except supabase_handler.SupabaseStorageError as e_sb_storage:
+            error_message = f"Supabase Storage error: {str(e_sb_storage)}"
+            logger.error(f"Celery task {celery_task_id} for DB {concept_image_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        except supabase_handler.SupabaseDBError as e_sb_db:
+            error_message = f"Supabase DB error: {str(e_sb_db)}"
+            logger.error(f"Celery task {celery_task_id} for DB {concept_image_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        except CeleryTaskException as e_celery_task: # Catch our own specific exception
+            error_message = str(e_celery_task)
+            logger.error(f"Celery task {celery_task_id} for DB {concept_image_db_id}: CeleryTaskException: {error_message}", exc_info=True)
+            final_status = "failed" # Or a more specific status based on error_message
         except Exception as e_unhandled:
-            err_msg = f"Unexpected error in OpenAI task: {type(e_unhandled).__name__} - {str(e_unhandled)}"
-            logger.error(f"Celery task {task_id}: {err_msg}", exc_info=True)
-            # Check if the unhandled exception or its arguments contain a coroutine for debugging
-            if inspect.iscoroutine(e_unhandled) or any(inspect.iscoroutine(arg) for arg in e_unhandled.args if arg is not None):
-                logger.error(f"Celery task {task_id}: The unhandled exception or its args contained a coroutine: {e_unhandled}")
-                # Ensure the message is simple if it was a coroutine itself
-                if inspect.iscoroutine(e_unhandled):
-                    err_msg = f"Unexpected error in OpenAI task: Unhandled exception was a coroutine object."
-            raise CeleryTaskException(err_msg)
-            
-    # Use a synchronous try/except block to handle any issues with the async function
+            error_message = f"Unexpected error: {type(e_unhandled).__name__} - {str(e_unhandled)}"
+            logger.error(f"Celery task {celery_task_id} for DB {concept_image_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        
+        # Ensure DB record is updated with the final status if an error occurred
+        if final_status != "complete":
+            try:
+                await supabase_handler.update_concept_image_record(
+                    task_id=client_task_id,
+                    concept_image_id=concept_image_db_id,
+                    status=final_status,
+                    # Optionally add error_message to a metadata field if schema supports it
+                    # metadata={"error": error_message} 
+                )
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {concept_image_db_id} status to '{final_status}'.")
+            except Exception as db_update_e:
+                logger.error(f"Celery task {celery_task_id}: CRITICAL - Failed to update DB record {concept_image_db_id} to '{final_status}' after error: {db_update_e}", exc_info=True)
+        
+        if error_message and not isinstance(error_message, CeleryTaskException):
+             # Re-raise to make Celery aware of the failure if not already a CeleryTaskException
+            raise CeleryTaskException(error_message)
+        elif isinstance(error_message, CeleryTaskException): # Already a CeleryTaskException
+            raise error_message
+
+    # Synchronous wrapper to run the async processing logic
     try:
-        # Create a new event loop for this task to avoid conflicts with Celery's event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(process_openai_image())
         finally:
             loop.close()
-    except Exception as e:
-        # Handle any exceptions from running the async function
-        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
-        # Don't use self.retry as it might cause serialization issues with coroutines
-        raise CeleryTaskException(f"Error running OpenAI task: {str(e)}")
+    except Exception as e: # This will catch CeleryTaskException re-raised from process_openai_image
+        logger.error(f"Celery task {celery_task_id} for DB {concept_image_db_id}: Final error state: {type(e).__name__} - {str(e)}", exc_info=True)
+        # Celery will mark the task as failed if an exception is raised here.
+        # No need for self.retry unless specific retry logic is desired for certain exceptions.
+        raise # Re-raise the exception to ensure Celery sees it as a failure
 
 @celery_app.task(bind=True)
-def generate_tripo_text_to_model_task(self, request_data_dict: dict):
-    """Celery task to call Tripo AI text-to-model endpoint."""
-    task_id = self.request.id
-    logger.info(f"Celery task {task_id}: Starting Tripo AI text-to-model.")
+def generate_tripo_text_to_model_task(self, model_db_id: int, request_data_dict: dict):
+    """Celery task to call Tripo AI text-to-model, handle polling, download, upload to Supabase, and update the DB record."""
     
-    # Define the async function that will be run
+    client_task_id = request_data_dict.get("task_id")
+    celery_task_id = self.request.id
+    
+    logger.info(f"Celery task {celery_task_id} for DB record {model_db_id} (Client Task ID: {client_task_id}): Starting Tripo text-to-model.")
+    
     async def process_tripo_request():
+        final_status = "failed"
+        error_message = None
+        tripo_task_id = None
+        
         try:
             request_data = TextToModelRequest(**request_data_dict)
-            # Add await here to properly handle the coroutine
+
+            # Update DB record to 'processing'
+            await supabase_handler.update_model_record(
+                task_id=client_task_id,
+                model_id=model_db_id,
+                status="processing",
+            )
+            logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} status to 'processing'.")
+
+            # Call Tripo AI
             tripo_response = await tripo_client.generate_text_to_model(request_data)
-            task_id = tripo_response["data"]["task_id"]
-            logger.info(f"Celery task {self.request.id}: Initiated Tripo AI text-to-model task with ID: {task_id}")
-            # Return the Tripo task ID. The status endpoint will poll Tripo directly.
-            return {'tripo_task_id': task_id}
-        except Exception as e:
-            logger.error(f"Celery task {self.request.id}: Tripo AI text-to-model failed: {e}", exc_info=True)
-            raise e
-    
+            tripo_task_id = tripo_response.get("data", {}).get("task_id")
+            
+            if not tripo_task_id:
+                error_message = "Failed to get Tripo AI task ID."
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
+
+            logger.info(f"Celery task {celery_task_id}: Got Tripo AI task ID: {tripo_task_id}")
+
+            # Update DB record with Tripo task ID
+            await supabase_handler.update_model_record(
+                task_id=client_task_id,
+                model_id=model_db_id,
+                ai_service_task_id=tripo_task_id,
+                status="processing",
+            )
+
+            # Wait for completion and get result
+            final_result = await tripo_client.poll_tripo_task_status(tripo_task_id)
+            
+            if final_result.get("status") == "complete":
+                result_url = final_result.get("result_url")
+                if not result_url:
+                    error_message = "Tripo AI task complete but no result URL."
+                    logger.error(f"Celery task {celery_task_id}: {error_message}")
+                    raise CeleryTaskException(error_message)
+
+                # Download from Tripo's temporary URL
+                logger.info(f"Celery task {celery_task_id}: Downloading model from {result_url}")
+                async with httpx.AsyncClient() as http_client:
+                    dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
+                    dl_response.raise_for_status()
+                    model_data_bytes = dl_response.content
+
+                # Upload to our Supabase
+                final_asset_url = await supabase_handler.upload_asset_to_storage(
+                    task_id=client_task_id,
+                    asset_type_plural="models",
+                    file_name="model.glb",
+                    asset_data=model_data_bytes,
+                    content_type="model/gltf-binary"
+                )
+
+                # Update DB record with final URL and complete status
+                await supabase_handler.update_model_record(
+                    task_id=client_task_id,
+                    model_id=model_db_id,
+                    asset_url=final_asset_url,
+                    status="complete",
+                    ai_service_task_id=tripo_task_id,
+                    prompt=request_data.prompt,
+                    style=request_data.style
+                )
+
+                final_status = "complete"
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with final URL and status 'complete'.")
+                
+                return {
+                    'status': final_status,
+                    'result_url': final_asset_url,
+                    'db_record_id': model_db_id,
+                    'client_task_id': client_task_id,
+                    'tripo_task_id': tripo_task_id
+                }
+            else:
+                error_message = f"Tripo AI task failed or unknown status: {final_result.get('status')}"
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
+
+        except httpx.HTTPStatusError as e_http:
+            error_message = f"HTTP error during Tripo call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        except CeleryTaskException as e_celery_task:
+            error_message = str(e_celery_task)
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: CeleryTaskException: {error_message}", exc_info=True)
+            final_status = "failed"
+        except Exception as e_unhandled:
+            error_message = f"Unexpected error: {type(e_unhandled).__name__} - {str(e_unhandled)}"
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        
+        # Ensure DB record is updated with the final status if an error occurred
+        if final_status != "complete":
+            try:
+                await supabase_handler.update_model_record(
+                    task_id=client_task_id,
+                    model_id=model_db_id,
+                    status=final_status,
+                    ai_service_task_id=tripo_task_id
+                )
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} status to '{final_status}'.")
+            except Exception as db_update_e:
+                logger.error(f"Celery task {celery_task_id}: CRITICAL - Failed to update DB record {model_db_id} to '{final_status}' after error: {db_update_e}", exc_info=True)
+        
+        if error_message:
+            raise CeleryTaskException(error_message)
+
+    # Synchronous wrapper to run the async processing logic
     try:
-        # Create a new event loop for this task to avoid conflicts with Celery's event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -168,30 +327,135 @@ def generate_tripo_text_to_model_task(self, request_data_dict: dict):
         finally:
             loop.close()
     except Exception as e:
-        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
-        raise self.retry(exc=e, countdown=5, max_retries=3)
+        logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: Final error state: {type(e).__name__} - {str(e)}", exc_info=True)
+        raise
 
 @celery_app.task(bind=True)
-def generate_tripo_image_to_model_task(self, request_data_dict: dict):
-    """Celery task to call Tripo AI multiview-to-model endpoint."""
-    task_id = self.request.id
-    logger.info(f"Celery task {task_id}: Starting Tripo AI image-to-model (multiview).")
+def generate_tripo_image_to_model_task(self, model_db_id: int, image_bytes_list: list[bytes], original_filenames: list[str], request_data_dict: dict):
+    """Celery task to call Tripo AI image-to-model (multiview) and update DB with Tripo task ID."""
+    client_task_id = request_data_dict.get("task_id")
+    celery_task_id = self.request.id
+    logger.info(f"Celery task {celery_task_id} for DB record {model_db_id} (Client Task ID: {client_task_id}): Starting Tripo AI image-to-model (multiview).")
     
-    # Define the async function that will be run
     async def process_tripo_request():
+        final_status = "failed"
+        tripo_task_id = None
+        error_message = None
+
         try:
             request_data = ImageToModelRequest(**request_data_dict)
-            # Add await here to properly handle the coroutine
-            tripo_response = await tripo_client.generate_image_to_model(request_data)
-            task_id = tripo_response["data"]["task_id"]
-            logger.info(f"Celery task {self.request.id}: Initiated Tripo AI image-to-model (multiview) task with ID: {task_id}")
-            return {'tripo_task_id': task_id}
-        except Exception as e:
-            logger.error(f"Celery task {self.request.id}: Tripo AI image-to-model (multiview) failed: {e}", exc_info=True)
-            raise e
-    
+
+            await supabase_handler.update_model_record(
+                task_id=client_task_id,
+                model_id=model_db_id,
+                status="processing",
+            )
+            logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} status to 'processing'.")
+
+            # Call Tripo AI with image bytes
+            tripo_response = await tripo_client.generate_image_to_model(
+                image_files_data=image_bytes_list,
+                image_filenames=original_filenames,
+                request_model=request_data 
+            )
+            
+            tripo_task_id = tripo_response.get("data", {}).get("task_id")
+            if not tripo_task_id:
+                error_message = "Tripo AI (image-to-model) did not return a valid task ID."
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
+
+            logger.info(f"Celery task {celery_task_id}: Got Tripo AI task ID: {tripo_task_id}")
+
+            await supabase_handler.update_model_record(
+                task_id=client_task_id,
+                model_id=model_db_id,
+                ai_service_task_id=tripo_task_id,
+                status="processing"
+            )
+
+            # Wait for completion and get result
+            final_result = await tripo_client.poll_tripo_task_status(tripo_task_id)
+            
+            if final_result.get("status") == "complete":
+                result_url = final_result.get("result_url")
+                if not result_url:
+                    error_message = "Tripo AI task complete but no result URL."
+                    logger.error(f"Celery task {celery_task_id}: {error_message}")
+                    raise CeleryTaskException(error_message)
+
+                # Download from Tripo's temporary URL
+                logger.info(f"Celery task {celery_task_id}: Downloading model from {result_url}")
+                async with httpx.AsyncClient() as http_client:
+                    dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
+                    dl_response.raise_for_status()
+                    model_data_bytes = dl_response.content
+
+                # Upload to our Supabase
+                final_asset_url = await supabase_handler.upload_asset_to_storage(
+                    task_id=client_task_id,
+                    asset_type_plural="models",
+                    file_name="model.glb",
+                    asset_data=model_data_bytes,
+                    content_type="model/gltf-binary"
+                )
+
+                # Update DB record with final URL and complete status
+                await supabase_handler.update_model_record(
+                    task_id=client_task_id,
+                    model_id=model_db_id,
+                    asset_url=final_asset_url,
+                    status="complete",
+                    ai_service_task_id=tripo_task_id,
+                    prompt=request_data.prompt,
+                    style=request_data.style
+                )
+
+                final_status = "complete"
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with final URL and status 'complete'.")
+                
+                return {
+                    'status': final_status,
+                    'result_url': final_asset_url,
+                    'db_record_id': model_db_id,
+                    'client_task_id': client_task_id,
+                    'tripo_task_id': tripo_task_id
+                }
+            else:
+                error_message = f"Tripo AI task failed or unknown status: {final_result.get('status')}"
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
+
+        except httpx.HTTPStatusError as e_http:
+            error_message = f"HTTP error during Tripo call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        except CeleryTaskException as e_celery_task:
+            error_message = str(e_celery_task)
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: CeleryTaskException: {error_message}", exc_info=True)
+            final_status = "failed"
+        except Exception as e_unhandled:
+            error_message = f"Unexpected error: {type(e_unhandled).__name__} - {str(e_unhandled)}"
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+
+        if final_status != "complete":
+            try:
+                await supabase_handler.update_model_record(
+                    task_id=client_task_id, 
+                    model_id=model_db_id, 
+                    status=final_status,
+                    ai_service_task_id=tripo_task_id
+                )
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} status to '{final_status}'.")
+            except Exception as db_update_e:
+                logger.error(f"Celery task {celery_task_id}: CRITICAL - Failed to update DB {model_db_id} to '{final_status}': {db_update_e}", exc_info=True)
+        
+        if error_message:
+            raise CeleryTaskException(error_message)
+
+    # Synchronous wrapper
     try:
-        # Create a new event loop for this task to avoid conflicts with Celery's event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -199,30 +463,135 @@ def generate_tripo_image_to_model_task(self, request_data_dict: dict):
         finally:
             loop.close()
     except Exception as e:
-        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
-        raise self.retry(exc=e, countdown=5, max_retries=3)
+        logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: Final error state: {type(e).__name__} - {str(e)}", exc_info=True)
+        raise
 
 @celery_app.task(bind=True)
-def generate_tripo_sketch_to_model_task(self, request_data_dict: dict):
-    """Celery task to call Tripo AI image-to-model endpoint (for sketches)."""
-    task_id = self.request.id
-    logger.info(f"Celery task {task_id}: Starting Tripo AI sketch-to-model.")
+def generate_tripo_sketch_to_model_task(self, model_db_id: int, image_bytes: bytes, original_filename: str, request_data_dict: dict):
+    """Celery task to call Tripo AI sketch-to-model and update DB with Tripo task ID."""
+    client_task_id = request_data_dict.get("task_id")
+    celery_task_id = self.request.id
+    logger.info(f"Celery task {celery_task_id} for DB record {model_db_id} (Client Task ID: {client_task_id}): Starting Tripo AI sketch-to-model.")
     
-    # Define the async function that will be run
     async def process_tripo_request():
+        final_status = "failed"
+        tripo_task_id = None
+        error_message = None
+        
         try:
             request_data = SketchToModelRequest(**request_data_dict)
-            # Add await here to properly handle the coroutine
-            tripo_response = await tripo_client.generate_sketch_to_model(request_data)
-            task_id = tripo_response["data"]["task_id"]
-            logger.info(f"Celery task {self.request.id}: Initiated Tripo AI sketch-to-model task with ID: {task_id}")
-            return {'tripo_task_id': task_id}
-        except Exception as e:
-            logger.error(f"Celery task {self.request.id}: Tripo AI sketch-to-model failed: {e}", exc_info=True)
-            raise e
-    
+
+            await supabase_handler.update_model_record(
+                task_id=client_task_id, 
+                model_id=model_db_id, 
+                status="processing"
+            )
+            logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} status to 'processing'.")
+
+            # Call Tripo AI with sketch bytes
+            tripo_response = await tripo_client.generate_sketch_to_model(
+                image_bytes=image_bytes,
+                original_filename=original_filename,
+                request_model=request_data
+            )
+            
+            tripo_task_id = tripo_response.get("data", {}).get("task_id")
+            if not tripo_task_id:
+                error_message = "Tripo AI (sketch-to-model) did not return a valid task ID."
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
+
+            logger.info(f"Celery task {celery_task_id}: Got Tripo AI task ID: {tripo_task_id}")
+
+            await supabase_handler.update_model_record(
+                task_id=client_task_id, 
+                model_id=model_db_id, 
+                ai_service_task_id=tripo_task_id, 
+                status="processing"
+            )
+
+            # Wait for completion and get result
+            final_result = await tripo_client.poll_tripo_task_status(tripo_task_id)
+            
+            if final_result.get("status") == "complete":
+                result_url = final_result.get("result_url")
+                if not result_url:
+                    error_message = "Tripo AI task complete but no result URL."
+                    logger.error(f"Celery task {celery_task_id}: {error_message}")
+                    raise CeleryTaskException(error_message)
+
+                # Download from Tripo's temporary URL
+                logger.info(f"Celery task {celery_task_id}: Downloading model from {result_url}")
+                async with httpx.AsyncClient() as http_client:
+                    dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
+                    dl_response.raise_for_status()
+                    model_data_bytes = dl_response.content
+
+                # Upload to our Supabase
+                final_asset_url = await supabase_handler.upload_asset_to_storage(
+                    task_id=client_task_id,
+                    asset_type_plural="models",
+                    file_name="model.glb",
+                    asset_data=model_data_bytes,
+                    content_type="model/gltf-binary"
+                )
+
+                # Update DB record with final URL and complete status
+                await supabase_handler.update_model_record(
+                    task_id=client_task_id,
+                    model_id=model_db_id,
+                    asset_url=final_asset_url,
+                    status="complete",
+                    ai_service_task_id=tripo_task_id,
+                    prompt=request_data.prompt,
+                    style=request_data.style
+                )
+
+                final_status = "complete"
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with final URL and status 'complete'.")
+                
+                return {
+                    'status': final_status,
+                    'result_url': final_asset_url,
+                    'db_record_id': model_db_id,
+                    'client_task_id': client_task_id,
+                    'tripo_task_id': tripo_task_id
+                }
+            else:
+                error_message = f"Tripo AI task failed or unknown status: {final_result.get('status')}"
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
+
+        except httpx.HTTPStatusError as e_http:
+            error_message = f"HTTP error during Tripo call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        except CeleryTaskException as e_celery_task:
+            error_message = str(e_celery_task)
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: CeleryTaskException: {error_message}", exc_info=True)
+            final_status = "failed"
+        except Exception as e_unhandled:
+            error_message = f"Unexpected error: {type(e_unhandled).__name__} - {str(e_unhandled)}"
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+
+        if final_status != "complete":
+            try:
+                await supabase_handler.update_model_record(
+                    task_id=client_task_id, 
+                    model_id=model_db_id, 
+                    status=final_status,
+                    ai_service_task_id=tripo_task_id
+                )
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} status to '{final_status}'.")
+            except Exception as db_update_e:
+                logger.error(f"Celery task {celery_task_id}: CRITICAL - Failed to update DB {model_db_id} to '{final_status}': {db_update_e}", exc_info=True)
+        
+        if error_message:
+            raise CeleryTaskException(error_message)
+
+    # Synchronous wrapper
     try:
-        # Create a new event loop for this task to avoid conflicts with Celery's event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -230,62 +599,134 @@ def generate_tripo_sketch_to_model_task(self, request_data_dict: dict):
         finally:
             loop.close()
     except Exception as e:
-        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
-        raise self.retry(exc=e, countdown=5, max_retries=3)
+        logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: Final error state: {type(e).__name__} - {str(e)}", exc_info=True)
+        raise
 
 @celery_app.task(bind=True)
-def generate_tripo_refine_model_task(self, request_data_dict: dict):
-    """Celery task to call Tripo AI refine-model endpoint."""
-    task_id = self.request.id
-    logger.info(f"Celery task {task_id}: Starting Tripo AI refine-model.")
+def generate_tripo_refine_model_task(self, model_db_id: int, model_bytes: bytes, original_filename: str, request_data_dict: dict):
+    """Celery task to call Tripo AI refine-model and update DB."""
+    client_task_id = request_data_dict.get("task_id")
+    celery_task_id = self.request.id
+    logger.info(f"Celery task {celery_task_id} for DB record {model_db_id} (Client Task ID: {client_task_id}): Starting Tripo AI refine-model.")
     
-    # Define the async function that will be run
     async def process_tripo_request():
+        final_status = "failed"
+        tripo_task_id = None
+        error_message = None
+        
         try:
             request_data = RefineModelRequest(**request_data_dict)
-            # Add await here to properly handle the coroutine
-            tripo_response = await tripo_client.refine_model(request_data)
-            task_id = tripo_response["data"]["task_id"]
-            logger.info(f"Celery task {self.request.id}: Initiated Tripo AI refine-model task with ID: {task_id}")
-            return {'tripo_task_id': task_id}
-        except Exception as e:
-            logger.error(f"Celery task {self.request.id}: Tripo AI refine-model failed: {e}", exc_info=True)
-            raise e
-    
-    try:
-        # Create a new event loop for this task to avoid conflicts with Celery's event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(process_tripo_request())
-        finally:
-            loop.close()
-    except Exception as e:
-        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
-        raise self.retry(exc=e, countdown=5, max_retries=3)
 
-@celery_app.task(bind=True)
-def generate_tripo_select_concept_task(self, request_data_dict: dict):
-    """Celery task to handle selection of a concept and initiate Tripo 3D generation."""
-    task_id = self.request.id
-    logger.info(f"Celery task {task_id}: Starting Tripo AI from selected concept.")
-    
-    # Define the async function that will be run
-    async def process_tripo_request():
-        try:
-            request_data = SelectConceptRequest(**request_data_dict)
-            # This calls the sketch-to-model client function, as it expects a single image URL
-            # Add await here to properly handle the coroutine
-            tripo_response = await tripo_client.generate_sketch_to_model(request_data)
-            task_id = tripo_response["data"]["task_id"]
-            logger.info(f"Celery task {self.request.id}: Initiated Tripo AI task from concept with ID: {task_id}")
-            return {'tripo_task_id': task_id}
-        except Exception as e:
-            logger.error(f"Celery task {self.request.id}: Tripo AI from concept failed: {e}", exc_info=True)
-            raise e
-    
+            await supabase_handler.update_model_record(
+                task_id=client_task_id, 
+                model_id=model_db_id, 
+                status="processing"
+            )
+            logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} status to 'processing'.")
+
+            # Call Tripo AI with model bytes
+            tripo_response = await tripo_client.refine_model(
+                model_bytes=model_bytes,
+                original_filename=original_filename,
+                request_model=request_data
+            )
+            
+            tripo_task_id = tripo_response.get("data", {}).get("task_id")
+            if not tripo_task_id:
+                error_message = "Tripo AI (refine-model) did not return a valid task ID."
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
+
+            logger.info(f"Celery task {celery_task_id}: Got Tripo AI task ID: {tripo_task_id}")
+
+            await supabase_handler.update_model_record(
+                task_id=client_task_id, 
+                model_id=model_db_id, 
+                ai_service_task_id=tripo_task_id, 
+                status="processing"
+            )
+
+            # Wait for completion and get result
+            final_result = await tripo_client.poll_tripo_task_status(tripo_task_id)
+            
+            if final_result.get("status") == "complete":
+                result_url = final_result.get("result_url")
+                if not result_url:
+                    error_message = "Tripo AI task complete but no result URL."
+                    logger.error(f"Celery task {celery_task_id}: {error_message}")
+                    raise CeleryTaskException(error_message)
+
+                # Download from Tripo's temporary URL
+                logger.info(f"Celery task {celery_task_id}: Downloading refined model from {result_url}")
+                async with httpx.AsyncClient() as http_client:
+                    dl_response = await http_client.get(result_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
+                    dl_response.raise_for_status()
+                    model_data_bytes = dl_response.content
+
+                # Upload to our Supabase
+                final_asset_url = await supabase_handler.upload_asset_to_storage(
+                    task_id=client_task_id,
+                    asset_type_plural="models",
+                    file_name="refined_model.glb",
+                    asset_data=model_data_bytes,
+                    content_type="model/gltf-binary"
+                )
+
+                # Update DB record with final URL and complete status
+                await supabase_handler.update_model_record(
+                    task_id=client_task_id,
+                    model_id=model_db_id,
+                    asset_url=final_asset_url,
+                    status="complete",
+                    ai_service_task_id=tripo_task_id,
+                    prompt=request_data.prompt
+                )
+
+                final_status = "complete"
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} with refined model URL and status 'complete'.")
+                
+                return {
+                    'status': final_status,
+                    'result_url': final_asset_url,
+                    'db_record_id': model_db_id,
+                    'client_task_id': client_task_id,
+                    'tripo_task_id': tripo_task_id
+                }
+            else:
+                error_message = f"Tripo AI refine task failed or unknown status: {final_result.get('status')}"
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
+
+        except httpx.HTTPStatusError as e_http:
+            error_message = f"HTTP error during Tripo refine call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        except CeleryTaskException as e_celery_task:
+            error_message = str(e_celery_task)
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: CeleryTaskException: {error_message}", exc_info=True)
+            final_status = "failed"
+        except Exception as e_unhandled:
+            error_message = f"Unexpected error: {type(e_unhandled).__name__} - {str(e_unhandled)}"
+            logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+
+        if final_status != "complete":
+            try:
+                await supabase_handler.update_model_record(
+                    task_id=client_task_id, 
+                    model_id=model_db_id, 
+                    status=final_status,
+                    ai_service_task_id=tripo_task_id
+                )
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {model_db_id} status to '{final_status}'.")
+            except Exception as db_update_e:
+                logger.error(f"Celery task {celery_task_id}: CRITICAL - Failed to update DB {model_db_id} to '{final_status}': {db_update_e}", exc_info=True)
+        
+        if error_message:
+            raise CeleryTaskException(error_message)
+
+    # Synchronous wrapper
     try:
-        # Create a new event loop for this task to avoid conflicts with Celery's event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -293,8 +734,8 @@ def generate_tripo_select_concept_task(self, request_data_dict: dict):
         finally:
             loop.close()
     except Exception as e:
-        logger.error(f"Celery task {task_id}: Error running async function: {type(e).__name__} - {str(e)}", exc_info=True)
-        raise self.retry(exc=e, countdown=5, max_retries=3)
+        logger.error(f"Celery task {celery_task_id} for DB {model_db_id}: Final error state: {type(e).__name__} - {str(e)}", exc_info=True)
+        raise
 
 # Note: The following tasks for polling status are now handled directly by the router
 # They are kept here as comments for reference if needed in the future.

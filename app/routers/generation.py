@@ -14,16 +14,18 @@ from app.schemas.generation_schemas import (
     SketchToModelRequest,
     RefineModelRequest,
     TaskIdResponse,
-    ImageToImageResponse,
-    SelectConceptRequest
+    # ImageToImageResponse, # This specific response model might change or be incorporated into TaskStatusResponse
+    # SelectConceptRequest schema is removed
 )
 
 # Import client functions for synchronous mode
 from app.ai_clients import openai_client
-from app.supabase_client import upload_image_to_storage, create_concept_image_record
+# from app.supabase_client import upload_image_to_storage, create_concept_image_record # Old supabase client, replaced by handler
 from app.config import settings # Import settings
 from app.sync_state import sync_task_results # Import the synchronous task results store from the new module
 from app.limiter import limiter # Import the limiter
+
+import app.supabase_handler as supabase_handler # New Supabase handler
 
 # from app.routers.models import task_store # Removed in-memory store
 # Removed import of app.routers.models to break circular dependency
@@ -34,7 +36,7 @@ from app.tasks.generation_tasks import (
     generate_tripo_image_to_model_task,
     generate_tripo_sketch_to_model_task,
     generate_tripo_refine_model_task,
-    generate_tripo_select_concept_task
+    # generate_tripo_select_concept_task is removed
 )
 
 logger = logging.getLogger(__name__)
@@ -46,148 +48,615 @@ router = APIRouter()
 @router.post("/image-to-image", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
 async def generate_image_to_image_endpoint(
-    request: Request,
-    image: UploadFile = File(...),
-    prompt: str = Form(...),
-    style: Optional[str] = Form(None),
-    background: Optional[str] = Form(None),
-    n: Optional[int] = Form(1)
+    request: Request, # FastAPI request object for context if needed (e.g., user)
+    request_data: ImageToImageRequest # Updated to use Pydantic model from request body
 ):
-    """Generates 2D concepts from an input image and text prompt using OpenAI.
-    Handles multipart/form-data for the image file.
-    """
-    logger.info(f"Received request for /generate/image-to-image with n={n}, background={background}")
-    # Read image file content
-    image_bytes = await image.read()
-
-    # Prepare data for client (excluding file which is handled separately)
-    request_data = ImageToImageRequest(prompt=prompt, style=style, n=n, background=background)
+    """Initiates concept image generation from a provided image using OpenAI."""
+    logger.info(f"Received request for /generate/image-to-image for task_id: {request_data.task_id}")
+    user_id_from_auth = None # Placeholder for user auth integration
 
     if settings.sync_mode:
-        logger.info("Running OpenAI image generation task synchronously.")
-        # Generate a dummy task ID for the synchronous run
-        task_id = str(uuid.uuid4())
-
+        logger.info(f"Running OpenAI image-to-image task synchronously for client task_id: {request_data.task_id}.")
+        operation_id = str(uuid.uuid4())
         try:
-            # --- OpenAI API Call (Synchronous) ---
-            # Call the core logic that was in the Celery task
-            # Need to pass a dummy 'self' or refactor the task logic
-            # For simplicity, I'll duplicate the core logic here
+            # Fetch the image from Supabase
+            try:
+                image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
+                logger.info(f"Successfully fetched input image for sync OpenAI task {operation_id} from: {request_data.input_image_asset_url}")
+            except HTTPException as e:
+                logger.error(f"Failed to fetch input image from Supabase for sync task {operation_id}: {e.detail}")
+                raise HTTPException(status_code=404, detail="Failed to fetch input image from Supabase for synchronous mode.")
+
+            # Create a DB record for tracking
+            sync_db_record = await supabase_handler.create_concept_image_record(
+                task_id=request_data.task_id,
+                prompt=request_data.prompt,
+                style=request_data.style,
+                status="processing", # Custom status for sync mode
+                user_id=user_id_from_auth,
+                ai_service_task_id=operation_id,
+                metadata={"sync_mode": True, "background": request_data.background}
+            )
+            concept_image_db_id = sync_db_record["id"]
+
+            # Call OpenAI directly (synchronous)
+            logger.info(f"Sync task {operation_id}: Calling OpenAI API directly.")
             openai_response = await openai_client.generate_image_to_image(
-                image_bytes, image.filename, request_data
+                image_file=image_bytes,
+                filename=request_data.input_image_asset_url.split('/')[-1],
+                request_data=request_data
             )
 
-            b64_images = [item["b64_json"] for item in openai_response.get("data", [])]
+            # Extract images from OpenAI response
+            b64_images = []
+            if "data" in openai_response:
+                for img_obj in openai_response["data"]:
+                    if "b64_json" in img_obj:
+                        b64_images.append(img_obj["b64_json"])
 
-            logger.info(f"Synchronous task {task_id}: OpenAI image generation completed, processing {len(b64_images)} images.")
+            if not b64_images:
+                logger.error(f"Sync task {operation_id}: OpenAI returned no images.")
+                await supabase_handler.update_concept_image_record(task_id=request_data.task_id, concept_image_id=concept_image_db_id, status="failed")
+                raise HTTPException(status_code=500, detail="OpenAI did not return any images in synchronous mode.")
 
-            # --- Supabase Upload and Database Record and URL Construction (Synchronous) ---
-            uploaded_image_download_urls = []
-            bucket_name = "concept-images" # Define the bucket name
+            logger.info(f"Sync task {operation_id} for client task {request_data.task_id}: OpenAI complete, processing {len(b64_images)} images.")
+
+            # Upload images to Supabase
+            uploaded_urls = []
             for i, b64_image in enumerate(b64_images):
                 try:
+                    # Decode base64 image
                     image_data = base64.b64decode(b64_image)
-                    file_name = f"{task_id}/{i}.png"
-                    file_path = await upload_image_to_storage(file_name, image_data, bucket_name)
-                    download_url = f"{settings.bff_base_url}/images/{bucket_name}/{file_path}"
-                    uploaded_image_download_urls.append(download_url)
-                    await create_concept_image_record(task_id, download_url, bucket_name, request_data.prompt, request_data.style)
-                    logger.info(f"Synchronous task {task_id}: Processed and uploaded image {i}.")
+
+                    # Upload to Supabase Storage
+                    supabase_url = await supabase_handler.upload_asset_to_storage(
+                        task_id=request_data.task_id,
+                        asset_type_plural="concepts",
+                        file_name=f"{i}.png",
+                        asset_data=image_data,
+                        content_type="image/png"
+                    )
+                    uploaded_urls.append(supabase_url)
+                    logger.info(f"Sync task {operation_id}: Uploaded image {i} to: {supabase_url}")
                 except Exception as upload_e:
-                    logger.error(f"Synchronous task {task_id}: Failed to process and upload image {i}: {upload_e}", exc_info=True)
-                    pass # Continue processing other images
+                    logger.error(f"Sync task {operation_id}: Failed to upload image {i}: {upload_e}", exc_info=True)
 
-            if not uploaded_image_download_urls:
-                 raise HTTPException(status_code=500, detail="No images were successfully processed and uploaded in synchronous mode.")
+            # Update DB record with the first uploaded URL and complete status
+            if uploaded_urls:
+                await supabase_handler.update_concept_image_record(
+                    task_id=request_data.task_id,
+                    concept_image_id=concept_image_db_id,
+                    asset_url=uploaded_urls[0],
+                    status="complete",
+                    ai_service_task_id=operation_id,
+                    prompt=request_data.prompt,
+                    style=request_data.style,
+                    metadata={"sync_mode": True, "total_images": len(uploaded_urls)}
+                )
 
-            logger.info(f"Synchronous task {task_id}: Finished processing and uploading images.")
+                # Store result for polling endpoint
+                sync_task_results[operation_id] = {
+                    "status": "complete",
+                    "result": {"image_urls": uploaded_urls}
+                }
+                logger.info(f"Sync task {operation_id}: Stored result with {len(uploaded_urls)} URLs. Returning this as task_id for polling.")
+                return TaskIdResponse(celery_task_id=operation_id)
+            else:
+                logger.error(f"Sync task {operation_id}: Failed to upload any images to Supabase.")
+                await supabase_handler.update_concept_image_record(task_id=request_data.task_id, concept_image_id=concept_image_db_id, status="failed")
+                raise HTTPException(status_code=500, detail="No images were successfully uploaded to Supabase in synchronous mode.")
 
-            # Store the result in the in-memory store for synchronous tasks
-            sync_task_results[task_id] = {'image_urls': uploaded_image_download_urls}
-            logger.info(f"Synchronous task {task_id}: Stored result in in-memory store.")
-
-            # Return a response mimicking the task status endpoint's successful result
-            # The test's poll_task_status will need to be adapted slightly or we return a different response structure
-            # For the current test structure expecting poll_task_status return, let's return a TaskIdResponse
-            # The test will then need to hit the status endpoint which can handle the synchronous task ID.
-
-            # NOTE: The current test setup polls the status endpoint based on the initial response task_id.
-            # To make the synchronous flow work with the existing test polling logic:
-            # The /tasks/{task_id}/status endpoint needs to be aware of synchronous task IDs
-            # and directly return the result when polled, instead of querying Celery state.
-            # This requires modifying the /tasks/{task_id}/status endpoint.
-
-            # For now, I'll modify the endpoint to return the task_id as before.
-            # We will need to update the /tasks/{task_id}/status endpoint next.
-
-            return TaskIdResponse(task_id=task_id)
-
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.error(f"Synchronous OpenAI task failed: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Synchronous OpenAI task failed: {e}")
+            logger.error(f"Synchronous OpenAI task failed for client task {request_data.task_id}: {e}", exc_info=True)
+            # Attempt to update DB record to failed if possible
+            if 'concept_image_db_id' in locals() and concept_image_db_id:
+                try:
+                    await supabase_handler.update_concept_image_record(task_id=request_data.task_id, concept_image_id=concept_image_db_id, status="failed")
+                except Exception as db_update_e:
+                    logger.error(f"Failed to update concept image record to failed: {db_update_e}")
+            raise HTTPException(status_code=500, detail=f"Synchronous OpenAI task failed: {str(e)}")
 
-    else:
-        # Original logic: Send task to Celery
-        logger.info("Sending OpenAI image generation task to Celery...")
-        task = generate_openai_image_task.delay(
-            image_bytes,
-            image.filename,
-            request_data.model_dump()
+    else: # Asynchronous (Celery) path
+        # Fetch the image from Supabase first
+        try:
+            image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
+            logger.info(f"Successfully fetched input image for task {request_data.task_id} from: {request_data.input_image_asset_url}")
+        except HTTPException as e:
+            logger.error(f"Failed to fetch image from Supabase for task {request_data.task_id}: {e.detail}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching image for task {request_data.task_id}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to retrieve input image.")
+
+        try:
+            # Create the record in concept_images table before dispatching the task
+            # The Celery task ID will be added in a subsequent update.
+            db_record = await supabase_handler.create_concept_image_record(
+                task_id=request_data.task_id,
+                prompt=request_data.prompt,
+                style=request_data.style,
+                status="pending", # Initial status before Celery task ID is known
+                user_id=user_id_from_auth, # Pass user_id if available
+                # source_input_asset_id needs to be passed if available/required by schema
+            )
+            concept_image_db_id = db_record["id"]
+            logger.info(f"Created concept image record {concept_image_db_id} for task {request_data.task_id}")
+        except HTTPException as e:
+            logger.error(f"Failed to create Supabase record for task {request_data.task_id}: {e.detail}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error creating Supabase record for task {request_data.task_id}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to initialize task record.")
+
+        logger.info(f"Sending OpenAI image generation task to Celery for db_id: {concept_image_db_id}")
+        celery_task = generate_openai_image_task.delay(
+            concept_image_db_id=concept_image_db_id, # Pass the DB record ID
+            image_bytes=image_bytes,
+            original_filename=request_data.input_image_asset_url.split('/')[-1], # Extract filename for reference
+            request_data_dict=request_data.model_dump() # Pass other params like prompt, n, style, background
         )
-        logger.info(f"Celery task ID: {task.id}")
-        return TaskIdResponse(task_id=task.id)
+        logger.info(f"Celery task ID: {celery_task.id} for concept_image_db_id: {concept_image_db_id}")
+
+        # Update the Supabase record with the Celery task ID and set status to 'processing'
+        try:
+            await supabase_handler.update_concept_image_record(
+                task_id=request_data.task_id, # Main client task_id
+                concept_image_id=concept_image_db_id,
+                status="processing", # Indicates task sent to Celery and being processed
+                ai_service_task_id=celery_task.id
+            )
+            logger.info(f"Updated concept image record {concept_image_db_id} with Celery task ID {celery_task.id}")
+        except Exception as e:
+            # Log this error but proceed to return task ID to client, as Celery task is dispatched.
+            # The task itself should handle failures gracefully.
+            logger.error(f"Failed to update Supabase record {concept_image_db_id} with Celery task ID {celery_task.id}: {e}", exc_info=True)
+            # Potentially raise an alert or specific monitoring event here.
+
+        return TaskIdResponse(celery_task_id=celery_task.id)
 
 @router.post("/text-to-model", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
 async def generate_text_to_model_endpoint(request: Request, request_data: TextToModelRequest):
     """Initiates 3D model generation from text using Tripo AI."""
-    logger.info("Received request for /generate/text-to-model")
-    # Send task to Celery and return the task ID
-    logger.info("Sending Tripo AI text-to-model task to Celery...")
-    task = generate_tripo_text_to_model_task.delay(request_data.model_dump())
-    logger.info(f"Celery task ID: {task.id}")
-    return TaskIdResponse(task_id=task.id)
+    logger.info(f"Received request for /generate/text-to-model for task_id: {request_data.task_id}")
+    user_id_from_auth = None # Placeholder for auth integration
+
+    if settings.sync_mode:
+        logger.info(f"Running Tripo text-to-model task synchronously for client task_id: {request_data.task_id}.")
+        operation_id = str(uuid.uuid4())
+        try:
+            # Create initial record
+            sync_db_record = await supabase_handler.create_model_record(
+                task_id=request_data.task_id,
+                prompt=request_data.prompt,
+                style=request_data.style,
+                status="processing",
+                user_id=user_id_from_auth,
+                ai_service_task_id=operation_id,
+                metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality"})
+            )
+            model_db_id = sync_db_record["id"]
+
+            # Call Tripo AI client directly (Simplified - actual client might need more setup or direct httpx call)
+            # This part needs to align with how tripo_client.generate_text_to_model is structured
+            # Assuming tripo_client.generate_text_to_model would return a structure with a temporary URL or data
+            # For now, we'll simulate a successful AI call and asset upload for sync mode.
+            # In a real scenario, this would involve: AI call -> get temp URL -> download -> upload to our Supabase
+            
+            logger.info(f"Sync task {operation_id}: Simulated Tripo AI call.")
+            # Simulate downloading/creating asset data
+            simulated_asset_data = b"simulated_glb_data"
+            simulated_filename = "model.glb"
+            
+            # Upload to our Supabase
+            final_asset_url = await supabase_handler.upload_asset_to_storage(
+                task_id=request_data.task_id,
+                asset_type_plural="models",
+                file_name=simulated_filename,
+                asset_data=simulated_asset_data,
+                content_type="model/gltf-binary"
+            )
+
+            # Update model record
+            await supabase_handler.update_model_record(
+                task_id=request_data.task_id,
+                model_id=model_db_id,
+                asset_url=final_asset_url,
+                status="complete",
+                ai_service_task_id=operation_id,
+                prompt=request_data.prompt,
+                style=request_data.style
+            )
+
+            sync_task_results[operation_id] = {"status": "complete", "result_url": final_asset_url}
+            logger.info(f"Sync task {operation_id}: Stored result. Returning this as task_id for polling.")
+            return TaskIdResponse(celery_task_id=operation_id)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Synchronous Tripo text-to-model failed for client task {request_data.task_id}: {e}", exc_info=True)
+            if 'model_db_id' in locals() and model_db_id:
+                try:
+                    await supabase_handler.update_model_record(task_id=request_data.task_id, model_id=model_db_id, status="failed")
+                except Exception as db_e:
+                    logger.error(f"Failed to update model record to failed: {db_e}")
+            raise HTTPException(status_code=500, detail=f"Synchronous Tripo text-to-model failed: {str(e)}")
+
+    else: # Asynchronous (Celery) path
+        try:
+            db_record = await supabase_handler.create_model_record(
+                task_id=request_data.task_id,
+                prompt=request_data.prompt,
+                style=request_data.style,
+                status="pending",
+                user_id=user_id_from_auth,
+                metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality"})
+            )
+            model_db_id = db_record["id"]
+            logger.info(f"Created model record {model_db_id} for task {request_data.task_id}")
+
+            logger.info(f"Sending Tripo AI text-to-model task to Celery for model_db_id: {model_db_id}")
+            celery_task = generate_tripo_text_to_model_task.delay(
+                model_db_id=model_db_id,
+                request_data_dict=request_data.model_dump()
+            )
+            logger.info(f"Celery task ID: {celery_task.id} for model_db_id: {model_db_id}")
+
+            await supabase_handler.update_model_record(
+                task_id=request_data.task_id,
+                model_id=model_db_id,
+                status="processing",
+                ai_service_task_id=celery_task.id
+            )
+            return TaskIdResponse(celery_task_id=celery_task.id)
+        
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error in /text-to-model endpoint for task {request_data.task_id}: {e}", exc_info=True)
+            # Attempt to update status to failed if db_record was created
+            if 'model_db_id' in locals() and model_db_id:
+                try:
+                    await supabase_handler.update_model_record(task_id=request_data.task_id, model_id=model_db_id, status="failed")
+                except Exception as db_update_e:
+                    logger.error(f"Failed to update model record to failed: {db_update_e}")
+            raise HTTPException(status_code=500, detail=f"Failed to process text-to-model request: {str(e)}")
 
 @router.post("/image-to-model", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
 async def generate_image_to_model_endpoint(request: Request, request_data: ImageToModelRequest):
-    """Initiates 3D model generation from multiple images (multiview) using Tripo AI."""
-    logger.info("Received request for /generate/image-to-model (multiview)")
-    # Send task to Celery and return the task ID
-    logger.info("Sending Tripo AI image-to-model task to Celery...")
-    task = generate_tripo_image_to_model_task.delay(request_data.model_dump(exclude_unset=False))
-    logger.info(f"Celery task ID: {task.id}")
-    return TaskIdResponse(task_id=task.id)
+    """Initiates 3D model generation from multiple images (Supabase URLs) using Tripo AI."""
+    logger.info(f"Received request for /generate/image-to-model for task_id: {request_data.task_id}")
+    user_id_from_auth = None # Placeholder
+
+    if settings.sync_mode:
+        logger.info(f"Running Tripo image-to-model task synchronously for client task_id: {request_data.task_id}.")
+        operation_id = str(uuid.uuid4())
+        try:
+            image_bytes_list = []
+            original_filenames = []
+            for url in request_data.input_image_asset_urls:
+                try:
+                    img_bytes = await supabase_handler.fetch_asset_from_storage(url)
+                    image_bytes_list.append(img_bytes)
+                    original_filenames.append(url.split('/')[-1])
+                except Exception as fetch_e:
+                    logger.error(f"Failed to fetch image {url} for task {request_data.task_id}: {fetch_e}")
+                    raise HTTPException(status_code=400, detail=f"Failed to fetch one or more input images: {url}")
+            
+            if not image_bytes_list:
+                raise HTTPException(status_code=400, detail="No input images could be fetched.")
+
+            sync_db_record = await supabase_handler.create_model_record(
+                task_id=request_data.task_id,
+                prompt=request_data.prompt,
+                style=request_data.style,
+                status="processing",
+                user_id=user_id_from_auth,
+                ai_service_task_id=operation_id,
+                metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "orientation"})
+            )
+            model_db_id = sync_db_record["id"]
+
+            # Simplified: Simulate AI call and asset upload for sync mode
+            logger.info(f"Sync task {operation_id}: Simulated Tripo AI image-to-model call.")
+            simulated_asset_data = b"simulated_multiview_glb_data"
+            simulated_filename = "model_multiview.glb"
+            
+            final_asset_url = await supabase_handler.upload_asset_to_storage(
+                task_id=request_data.task_id,
+                asset_type_plural="models",
+                file_name=simulated_filename,
+                asset_data=simulated_asset_data,
+                content_type="model/gltf-binary"
+            )
+
+            await supabase_handler.update_model_record(
+                task_id=request_data.task_id,
+                model_id=model_db_id,
+                asset_url=final_asset_url,
+                status="complete",
+                prompt=request_data.prompt,
+                style=request_data.style,
+                ai_service_task_id=operation_id
+            )
+
+            sync_task_results[operation_id] = {"status": "complete", "result_url": final_asset_url}
+            return TaskIdResponse(celery_task_id=operation_id)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Synchronous Tripo image-to-model failed: {e}", exc_info=True)
+            if 'model_db_id' in locals() and model_db_id:
+                try:
+                    await supabase_handler.update_model_record(task_id=request_data.task_id, model_id=model_db_id, status="failed")
+                except: pass # best effort
+            raise HTTPException(status_code=500, detail=f"Synchronous Tripo image-to-model failed: {str(e)}")
+
+    else: # Asynchronous (Celery) path
+        try:
+            image_bytes_list = []
+            original_filenames = []
+            for url in request_data.input_image_asset_urls:
+                try:
+                    img_bytes = await supabase_handler.fetch_asset_from_storage(url)
+                    image_bytes_list.append(img_bytes)
+                    original_filenames.append(url.split('/')[-1])
+                except HTTPException as e:
+                    logger.error(f"Failed to fetch image {url} for task {request_data.task_id}: {e.detail}")
+                    raise
+                except Exception as e:
+                    logger.error(f"Unexpected error fetching image {url} for task {request_data.task_id}: {e}")
+                    raise HTTPException(status_code=500, detail=f"Failed to retrieve input image: {url}")
+
+            if not image_bytes_list:
+                 raise HTTPException(status_code=400, detail="No input images could be fetched for Celery task.")
+
+            db_record = await supabase_handler.create_model_record(
+                task_id=request_data.task_id,
+                prompt=request_data.prompt,
+                style=request_data.style,
+                status="pending",
+                user_id=user_id_from_auth,
+                metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "orientation"})
+                # source_input_asset_id might need to be a list or handled if multiple inputs map to one model record.
+                # For now, the schema has one source_input_asset_id. This might need refinement based on how inputs are tracked.
+            )
+            model_db_id = db_record["id"]
+            logger.info(f"Created model record {model_db_id} for image-to-model task {request_data.task_id}")
+
+            celery_task = generate_tripo_image_to_model_task.delay(
+                model_db_id=model_db_id,
+                image_bytes_list=image_bytes_list,
+                original_filenames=original_filenames,
+                request_data_dict=request_data.model_dump()
+            )
+            logger.info(f"Celery task ID: {celery_task.id} for model_db_id: {model_db_id}")
+
+            await supabase_handler.update_model_record(
+                task_id=request_data.task_id,
+                model_id=model_db_id,
+                status="processing",
+                ai_service_task_id=celery_task.id
+            )
+            return TaskIdResponse(celery_task_id=celery_task.id)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error in /image-to-model endpoint for task {request_data.task_id}: {e}", exc_info=True)
+            if 'model_db_id' in locals() and model_db_id:
+                try:
+                    await supabase_handler.update_model_record(task_id=request_data.task_id, model_id=model_db_id, status="failed")
+                except: pass # best effort
+            raise HTTPException(status_code=500, detail=f"Failed to process image-to-model request: {str(e)}")
 
 @router.post("/sketch-to-model", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
 async def generate_sketch_to_model_endpoint(request: Request, request_data: SketchToModelRequest):
-    """Initiates 3D model generation from a single sketch image using Tripo AI."""
-    logger.info("Received request for /generate/sketch-to-model")
-    # Send task to Celery and return the task ID
-    logger.info("Sending Tripo AI sketch-to-model task to Celery...")
-    task = generate_tripo_sketch_to_model_task.delay(request_data.model_dump())
-    logger.info(f"Celery task ID: {task.id}")
-    return TaskIdResponse(task_id=task.id)
+    """Initiates 3D model generation from a single sketch image (Supabase URL) using Tripo AI."""
+    logger.info(f"Received request for /generate/sketch-to-model for task_id: {request_data.task_id}")
+    user_id_from_auth = None # Placeholder
+
+    if settings.sync_mode:
+        logger.info(f"Running Tripo sketch-to-model task synchronously for client task_id: {request_data.task_id}.")
+        operation_id = str(uuid.uuid4())
+        try:
+            image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_sketch_asset_url)
+            if not image_bytes:
+                raise HTTPException(status_code=404, detail="Failed to fetch input sketch from Supabase for sync mode.")
+
+            sync_db_record = await supabase_handler.create_model_record(
+                task_id=request_data.task_id,
+                prompt=request_data.prompt,
+                style=request_data.style,
+                status="processing",
+                user_id=user_id_from_auth,
+                ai_service_task_id=operation_id,
+                metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "orientation"})
+                # Potentially add source_input_asset_id if the sketch corresponds to an input_assets entry
+            )
+            model_db_id = sync_db_record["id"]
+
+            logger.info(f"Sync task {operation_id}: Simulated Tripo AI sketch-to-model call.")
+            simulated_asset_data = b"simulated_sketch_glb_data"
+            simulated_filename = "model_sketch.glb"
+            
+            final_asset_url = await supabase_handler.upload_asset_to_storage(
+                task_id=request_data.task_id,
+                asset_type_plural="models",
+                file_name=simulated_filename,
+                asset_data=simulated_asset_data,
+                content_type="model/gltf-binary"
+            )
+
+            await supabase_handler.update_model_record(
+                task_id=request_data.task_id,
+                model_id=model_db_id,
+                asset_url=final_asset_url,
+                status="complete",
+                prompt=request_data.prompt,
+                style=request_data.style,
+                ai_service_task_id=operation_id
+            )
+
+            sync_task_results[operation_id] = {"status": "complete", "result_url": final_asset_url}
+            return TaskIdResponse(celery_task_id=operation_id)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Synchronous Tripo sketch-to-model failed: {e}", exc_info=True)
+            if 'model_db_id' in locals() and model_db_id:
+                try: await supabase_handler.update_model_record(task_id=request_data.task_id, model_id=model_db_id, status="failed")
+                except: pass
+            raise HTTPException(status_code=500, detail=f"Synchronous Tripo sketch-to-model failed: {str(e)}")
+
+    else: # Asynchronous (Celery) path
+        try:
+            image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_sketch_asset_url)
+            
+            db_record = await supabase_handler.create_model_record(
+                task_id=request_data.task_id,
+                prompt=request_data.prompt,
+                style=request_data.style,
+                status="pending",
+                user_id=user_id_from_auth,
+                metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "orientation"})
+                # Potentially add source_input_asset_id
+            )
+            model_db_id = db_record["id"]
+            logger.info(f"Created model record {model_db_id} for sketch-to-model task {request_data.task_id}")
+
+            celery_task = generate_tripo_sketch_to_model_task.delay(
+                model_db_id=model_db_id,
+                image_bytes=image_bytes,
+                original_filename=request_data.input_sketch_asset_url.split('/')[-1],
+                request_data_dict=request_data.model_dump()
+            )
+            logger.info(f"Celery task ID: {celery_task.id} for model_db_id: {model_db_id}")
+
+            await supabase_handler.update_model_record(
+                task_id=request_data.task_id,
+                model_id=model_db_id,
+                status="processing",
+                ai_service_task_id=celery_task.id
+            )
+            return TaskIdResponse(celery_task_id=celery_task.id)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error in /sketch-to-model endpoint for task {request_data.task_id}: {e}", exc_info=True)
+            if 'model_db_id' in locals() and model_db_id:
+                try: await supabase_handler.update_model_record(task_id=request_data.task_id, model_id=model_db_id, status="failed")
+                except: pass
+            raise HTTPException(status_code=500, detail=f"Failed to process sketch-to-model request: {str(e)}")
 
 @router.post("/refine-model", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_TRIPO_REFINE_REQUESTS_PER_MINUTE}/minute")
 async def refine_model_endpoint(request: Request, request_data: RefineModelRequest):
-    """Initiates refinement of a 3D model using Tripo AI."""
-    logger.info("Received request for /generate/refine-model")
-    # Send task to Celery and return the task ID
-    logger.info("Sending Tripo AI refine-model task to Celery...")
-    task = generate_tripo_refine_model_task.delay(request_data.model_dump())
-    logger.info(f"Celery task ID: {task.id}")
-    return TaskIdResponse(task_id=task.id)
+    """Initiates refinement of a 3D model (from Supabase URL) using Tripo AI."""
+    logger.info(f"Received request for /generate/refine-model for task_id: {request_data.task_id}")
+    user_id_from_auth = None # Placeholder
 
-@router.post("/select-concept", response_model=TaskIdResponse)
-@limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
-async def select_concept_endpoint(request: Request, request_data: SelectConceptRequest):
-    """Handles selection of a 2D concept and initiates 3D generation from it using Tripo AI."""
-    logger.info("Received request for /generate/select-concept")
-    # Send task to Celery and return the task ID
-    logger.info("Sending Tripo AI select-concept task to Celery...")
-    task = generate_tripo_select_concept_task.delay(request_data.model_dump())
-    logger.info(f"Celery task ID: {task.id}")
-    return TaskIdResponse(task_id=task.id) 
+    if settings.sync_mode:
+        logger.info(f"Running Tripo refine-model task synchronously for client task_id: {request_data.task_id}.")
+        operation_id = str(uuid.uuid4())
+        try:
+            model_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_model_asset_url)
+            if not model_bytes:
+                raise HTTPException(status_code=404, detail="Failed to fetch input model from Supabase for sync mode.")
+
+            # Create a new model record for the refined output
+            sync_db_record = await supabase_handler.create_model_record(
+                task_id=request_data.task_id,
+                prompt=request_data.prompt, # Refinement prompt
+                # style could be None or from request_data if applicable for refine
+                status="processing",
+                user_id=user_id_from_auth,
+                ai_service_task_id=operation_id,
+                # input_model_asset_url is part of request_data.model_dump()
+                metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "input_model_asset_url"})
+            )
+            refined_model_db_id = sync_db_record["id"]
+
+            logger.info(f"Sync task {operation_id}: Simulated Tripo AI refine-model call.")
+            simulated_refined_asset_data = b"simulated_refined_glb_data"
+            simulated_refined_filename = "model_refined.glb"
+            
+            final_refined_asset_url = await supabase_handler.upload_asset_to_storage(
+                task_id=request_data.task_id, # Use main task_id for folder structure
+                asset_type_plural="models",
+                file_name=simulated_refined_filename,
+                asset_data=simulated_refined_asset_data,
+                content_type="model/gltf-binary"
+            )
+
+            await supabase_handler.update_model_record(
+                task_id=request_data.task_id,
+                model_id=refined_model_db_id,
+                asset_url=final_refined_asset_url,
+                status="complete",
+                prompt=request_data.prompt,
+                ai_service_task_id=operation_id
+            )
+
+            sync_task_results[operation_id] = {"status": "complete", "result_url": final_refined_asset_url}
+            return TaskIdResponse(celery_task_id=operation_id)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Synchronous Tripo refine-model failed: {e}", exc_info=True)
+            if 'refined_model_db_id' in locals() and refined_model_db_id:
+                try: await supabase_handler.update_model_record(task_id=request_data.task_id, model_id=refined_model_db_id, status="failed")
+                except: pass
+            raise HTTPException(status_code=500, detail=f"Synchronous Tripo refine-model failed: {str(e)}")
+
+    else: # Asynchronous (Celery) path
+        try:
+            model_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_model_asset_url)
+
+            # Create a new model record for the refined output
+            db_record = await supabase_handler.create_model_record(
+                task_id=request_data.task_id,
+                prompt=request_data.prompt, # Refinement prompt
+                # style=request_data.style, # If applicable for refine
+                status="pending",
+                user_id=user_id_from_auth,
+                # Include input_model_asset_url in metadata to trace original model
+                metadata=request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "input_model_asset_url"})
+            )
+            refined_model_db_id = db_record["id"]
+            logger.info(f"Created new model record {refined_model_db_id} for refined output of task {request_data.task_id}")
+
+            celery_task = generate_tripo_refine_model_task.delay(
+                model_db_id=refined_model_db_id, # ID for the new record that will store the refined model
+                model_bytes=model_bytes,
+                original_filename=request_data.input_model_asset_url.split('/')[-1],
+                request_data_dict=request_data.model_dump()
+            )
+            logger.info(f"Celery task ID: {celery_task.id} for refined_model_db_id: {refined_model_db_id}")
+
+            await supabase_handler.update_model_record(
+                task_id=request_data.task_id,
+                model_id=refined_model_db_id,
+                status="processing",
+                ai_service_task_id=celery_task.id
+            )
+            return TaskIdResponse(celery_task_id=celery_task.id)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error in /refine-model endpoint for task {request_data.task_id}: {e}", exc_info=True)
+            if 'refined_model_db_id' in locals() and refined_model_db_id:
+                try: await supabase_handler.update_model_record(task_id=request_data.task_id, model_id=refined_model_db_id, status="failed")
+                except: pass
+            raise HTTPException(status_code=500, detail=f"Failed to process refine-model request: {str(e)}")
+
+
+# The /select-concept endpoint and its associated Celery task import have been removed.
+# The SelectConceptRequest schema import is also removed from app.schemas.generation_schemas. 

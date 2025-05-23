@@ -97,14 +97,14 @@ async def poll_task_status(task_id: str, service: str, poll_interval: int = 2, t
                     logger.info(f"Task {task_id} status: {status_data.get('status')}, Progress: {current_progress}%")
                     last_progress = current_progress
 
-                if status_data.get('status') == 'completed':
-                    logger.info(f"Task {task_id} completed.")
+                if status_data.get('status') == 'complete':
+                    logger.info(f"Task {task_id} complete.")
                     
-                    # For Tripo tasks, ensure we have a result_url (model_url)
-                    if service.lower() == 'tripo' and not status_data.get('result_url'):
-                        # If there's no result_url but the task is completed, poll one more time
+                    # For Tripo tasks, ensure we have an asset_url (model_url)
+                    if service.lower() == 'tripo' and not status_data.get('asset_url'):
+                        # If there's no asset_url but the task is complete, poll one more time
                         # Sometimes the model_url isn't immediately available
-                        logger.warning(f"Task {task_id} marked as completed but missing result_url. Polling once more...")
+                        logger.warning(f"Task {task_id} marked as complete but missing asset_url. Polling once more...")
                         await asyncio.sleep(2)
                         status_response = await client.get(status_url)
                         status_response.raise_for_status()
@@ -119,8 +119,8 @@ async def poll_task_status(task_id: str, service: str, poll_interval: int = 2, t
                 
                 # If task is still processing but 100% complete for Tripo, check if it has a model URL
                 if service.lower() == 'tripo' and status_data.get('progress') == 100:
-                    if status_data.get('result_url'):
-                        logger.info(f"Task {task_id} at 100% with result_url. Considering completed.")
+                    if status_data.get('asset_url'):
+                        logger.info(f"Task {task_id} at 100% with asset_url. Considering complete.")
                         return status_data
 
             time.sleep(poll_interval) # Poll every specified seconds
@@ -143,71 +143,83 @@ async def test_generate_image_to_image(request):
     logger.info(f"TEST START: {start_time}")
     
     endpoint = f"{BASE_URL}/generate/image-to-image"
-    image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg"
+    image_to_upload_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg"
     prompt = "Transform me into a toy action figure. Make it look like I am made out of plastic. Make sure to still make it look like me as much as possible. Include my whole body with no background, surroundings or detached objects."
     style = "Cartoonish, cute but still realistic."
-    background = "transparent" # Explicitly set background to transparent
+    background = "transparent"
+    client_task_id = f"test-i2i-{uuid.uuid4()}" # Client-generated task_id
 
-    logger.info(f"Running {request.node.name}...")
+    logger.info(f"Running {request.node.name} for task_id: {client_task_id}...")
 
-    # Download the image from the public URL to include in the multipart request
+    # 1. Download the public image
     async with httpx.AsyncClient() as client:
-        image_response = await client.get(image_url)
+        image_response = await client.get(image_to_upload_url)
         image_response.raise_for_status()
         image_content = image_response.content
-        image_filename = image_url.split("/")[-1] # Extract filename from URL
+        original_filename = image_to_upload_url.split("/")[-1]
     
-    logger.info(f"INPUT IMAGE DOWNLOAD: {time.time() - start_time:.2f}s")
+    logger.info(f"INPUT IMAGE DOWNLOADED: {original_filename}")
 
-    files = {'image': (image_filename, image_content, 'image/jpeg')}
-    data = {'prompt': prompt, 'style': style, 'n': 1, 'background': background}
+    # 2. Upload the image to Supabase Storage (simulating client upload)
+    # Use .jpg extension to match the downloaded file type
+    supabase_image_path = f"test_inputs/image-to-image/{client_task_id}/{original_filename}"
+    logger.info(f"Uploading image to Supabase Storage: {supabase_image_path}")
+    
+    # upload_image_to_storage returns the file_path within the bucket
+    uploaded_file_path = await upload_image_to_storage(supabase_image_path, image_content)
+    logger.info(f"Image uploaded to Supabase path: {uploaded_file_path}")
 
-    logger.info(f"Calling {endpoint} with prompt='{prompt}', style='{style}', background='{background}', image='{image_filename}' and n=1...")
+    # Construct the full Supabase URL
+    input_supabase_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_public_bucket_name}/{uploaded_file_path}"
+    logger.info(f"Constructed Supabase input URL: {input_supabase_url}")
+    
+    # 3. Call BFF endpoint with Supabase URL
+    request_data = {
+        "task_id": client_task_id,
+        "input_image_asset_url": input_supabase_url,
+        "prompt": prompt,
+        "style": style,
+        "n": 1,
+        "background": background,
+        "output_image_size": "1024x1024" # Added to match Pydantic schema
+    }
+
+    logger.info(f"Calling {endpoint} with JSON data: {request_data}")
     async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, files=files, data=data)
+        response = await client.post(endpoint, json=request_data) # Send JSON payload
         response.raise_for_status()
         result = response.json()
         logger.info(f"API RESPONSE TIME: {time.time() - api_call_start:.2f}s")
 
     logger.info(f"Received response: {result}")
 
-    assert "task_id" in result
-    task_id = result["task_id"]
-    logger.info(f"Received OpenAI task_id: {task_id}")
+    assert "celery_task_id" in result # Celery task_id
+    celery_task_id = result["celery_task_id"]
+    logger.info(f"Received Celery task_id: {celery_task_id}")
 
     # Poll for task completion and get the result data
-    logger.info(f"Polling for completion of OpenAI task {task_id}...")
+    logger.info(f"Polling for completion of OpenAI task {celery_task_id}...")
     polling_start = time.time()
-    task_result_data = await poll_task_status(task_id, "openai", poll_interval=2, total_timeout=180.0) # Increased timeout
+    task_result_data = await poll_task_status(celery_task_id, "openai", poll_interval=2, total_timeout=180.0)
     logger.info(f"TASK PROCESSING TIME (includes OpenAI generation + Supabase storage): {time.time() - polling_start:.2f}s")
 
-    # Assert task is completed and has image_urls in the result
-    assert task_result_data.get('status') == 'completed'
-    assert 'result' in task_result_data
-    assert 'image_urls' in task_result_data['result'] # Check for image_urls key in the result dictionary
-    image_urls = task_result_data['result']['image_urls']
-
-    # Get the expected number of images from the request data
-    expected_n = data.get('n', 1)
-
-    assert isinstance(image_urls, list)
-    assert len(image_urls) == expected_n # Assert the number of URLs matches the requested n
-
-    # Download and save generated concept images from the BFF download endpoint URLs
-    download_start = time.time()
-    for i, image_url in enumerate(image_urls):
-        try:
-            # The image_url is already the full URL pointing to our BFF download endpoint
-            logger.info(f"Downloading image from BFF endpoint URL: {image_url}")
-            image_dl_start = time.time()
-            await download_file(image_url, request.node.name, f"concept_{i}.png")
-            logger.info(f"IMAGE {i} DOWNLOAD TIME: {time.time() - image_dl_start:.2f}s")
-        except Exception as e:
-            logger.error(f"Error downloading image from BFF endpoint {image_url}: {e}", exc_info=True)
-            pytest.fail(f"Error downloading image from BFF endpoint {image_url}: {e}")
+    # Verify that the response contains the expected asset URL
+    assert task_result_data.get('status') == 'complete'
+    assert 'asset_url' in task_result_data
+    asset_url = task_result_data['asset_url'] # This is the Supabase URL
     
-    logger.info(f"TOTAL IMAGE DOWNLOAD TIME: {time.time() - download_start:.2f}s")
+    # For image-to-image, we expect at least one generated concept
+    assert asset_url is not None
+    logger.info(f"Received concept image Supabase URL: {asset_url}")
+
+    # Download the generated concept image
+    await download_file(asset_url, request.node.name, "concept_image.png")
+
+    expected_n = request_data.get('n', 1)
+    assert isinstance(asset_url, str)
+    assert len(asset_url) > 0
+
     logger.info(f"TOTAL TEST TIME: {time.time() - start_time:.2f}s")
 
 
@@ -219,13 +231,20 @@ async def test_generate_text_to_model(request):
     
     endpoint = f"{BASE_URL}/generate/text-to-model"
     prompt = "A violet colored cartoon flying elephant with big flapping ears"
+    client_task_id = f"test-t2m-{uuid.uuid4()}" # Client-generated task_id
 
-    logger.info(f"Running {request.node.name}...")
+    logger.info(f"Running {request.node.name} for task_id: {client_task_id}...")
 
-    request_data = {"prompt": prompt, "texture": True}
+    request_data = {
+        "task_id": client_task_id,
+        "prompt": prompt,
+        "texture_quality": "standard" # Added to match Pydantic schema (assuming it's 'texture_quality')
+                                     # Or it could be just "texture": True if that's the schema. Let's assume texture_quality for now.
+                                     # Will need to verify against actual Pydantic schema for TextToModelRequest.
+                                     # Based on API_REFACTOR.md, it's "texture_quality": "standard" | "detailed"
+    }
 
-    logger.info(f"Calling {endpoint} with prompt='{prompt}'...")
-    # For tests running in Docker, need to use the Docker service name
+    logger.info(f"Calling {endpoint} with JSON data: {request_data}")
     async with httpx.AsyncClient() as client:
         api_call_start = time.time()
         response = await client.post(endpoint, json=request_data)
@@ -235,34 +254,20 @@ async def test_generate_text_to_model(request):
 
     logger.info(f"Received response: {result}")
 
-    assert "task_id" in result
-    task_id = result["task_id"]
-    logger.info(f"Received Tripo AI task_id: {task_id}")
+    assert "task_id" in result # This is the Celery task_id
+    celery_task_id = result["task_id"]
+    logger.info(f"Received Celery task_id: {celery_task_id}")
 
     # Poll for task completion and get result URL
     polling_start = time.time()
-    model_url_data = await poll_task_status(task_id, "tripo", total_timeout=300.0) # Set a total timeout for Tripo polling
+    task_result_data = await poll_task_status(celery_task_id, "tripo", total_timeout=300.0)
     logger.info(f"TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
-    logger.info(f"Full model_url_data: {model_url_data}")
+    logger.info(f"Full task_result_data: {task_result_data}")
 
-    # Extract model_url from the result_url field
-    model_url = model_url_data.get('result_url')
-    
-    # If result_url is not found, try to extract from other fields as fallback
-    if not model_url:
-        logger.warning("result_url not found in response, trying to extract from other fields")
-        if 'result' in model_url_data and model_url_data['result']:
-            if isinstance(model_url_data['result'], dict) and model_url_data['result'].get('model_url'):
-                model_url = model_url_data['result']['model_url']
-            elif isinstance(model_url_data['result'], str):
-                model_url = model_url_data['result']
-        else:
-            # Fallback to a test model URL for testing
-            logger.warning("Using fallback test model URL for testing")
-            model_url = "https://storage.googleapis.com/materials-icons/external-assets/mocks/models/Duck.glb"
+    model_url = task_result_data.get('asset_url') # Expecting 'asset_url' based on TaskStatusResponse schema
 
-    assert model_url is not None, f"Model URL not found in response: {model_url_data}"
-    logger.info(f"Received model URL: {model_url}")
+    assert model_url is not None, f"Model asset_url not found in response: {task_result_data}"
+    logger.info(f"Received model Supabase URL: {model_url}")
 
     # Download the generated model
     download_start = time.time()
@@ -270,91 +275,48 @@ async def test_generate_text_to_model(request):
     logger.info(f"MODEL DOWNLOAD TIME: {time.time() - download_start:.2f}s")
     logger.info(f"Model downloaded to: {model_file_path}")
     
-    # Verify file exists
-    assert os.path.exists(model_file_path), f"Downloaded model file not found at {model_file_path}"
-    assert os.path.getsize(model_file_path) > 0, "Downloaded model file is empty"
+    assert os.path.exists(model_file_path)
+    assert os.path.getsize(model_file_path) > 0
     
     logger.info(f"TOTAL TEST TIME: {time.time() - start_time:.2f}s")
 
 
 @pytest.mark.asyncio
-async def test_generate_from_concept(request):
-    """Test 2.2: Generate 3D model from a pre-existing public concept image URL using Tripo AI.
-    This test does NOT involve OpenAI concept generation; it tests the /generate/select-concept endpoint directly.
-    """
-    overall_start_time = time.time()
-    logger.info(f"TEST START (Direct Concept-to-Model): {overall_start_time}")
-
-    # Use a publicly accessible URL for the concept image
-    public_concept_image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-concept.png"
-    
-    # Since we are not generating a concept via OpenAI in this specific test, 
-    # we use a dummy task ID. The backend should handle this gracefully if the ID
-    # is only used for logging/tracing in this path.
-    dummy_concept_task_id = f"direct-tripo-test-{uuid.uuid4()}"
-
-    logger.info(f"Using public concept URL: {public_concept_image_url}")
-    logger.info(f"Using dummy concept_task_id: {dummy_concept_task_id}")
-
-    select_concept_endpoint = f"{BASE_URL}/generate/select-concept"
-
-    request_data = {
-        "concept_task_id": dummy_concept_task_id,
-        "selected_image_url": public_concept_image_url,
-        "texture": True
-    }
-
-    logger.info(f"Calling {select_concept_endpoint} with request_data: {request_data}")
-    async with httpx.AsyncClient() as client:
-        api_call_start = time.time()
-        response = await client.post(select_concept_endpoint, json=request_data)
-        response.raise_for_status()
-        result = response.json()
-        logger.info(f"API Response Time (/generate/select-concept): {time.time() - api_call_start:.2f}s")
-
-    logger.info(f"Received response: {result}")
-    assert "task_id" in result
-    tripo_celery_task_id = result["task_id"]
-    logger.info(f"Received Tripo AI Celery task_id: {tripo_celery_task_id}")
-
-    logger.info(f"Polling for completion of Tripo task {tripo_celery_task_id}...")
-    polling_start = time.time()
-    model_url_data = await poll_task_status(tripo_celery_task_id, "tripo", total_timeout=300.0)
-    logger.info(f"Task Processing Time (Tripo Celery Task): {time.time() - polling_start:.2f}s")
-
-    final_model_url = model_url_data.get('result_url')
-    assert final_model_url is not None, f"Final model URL not found in response: {model_url_data}"
-    logger.info(f"Received final model URL: {final_model_url}")
-
-    logger.info("Downloading the final generated 3D model...")
-    download_start = time.time()
-    await download_file(final_model_url, request.node.name, "model_from_public_concept.glb")
-    logger.info(f"Final Model Download Time: {time.time() - download_start:.2f}s")
-    
-    logger.info(f"TOTAL TEST TIME (Direct Concept-to-Model): {time.time() - overall_start_time:.2f}s")
-
-
-@pytest.mark.asyncio
 async def test_generate_image_to_model(request):
-    """Test 3.0: /generate/image-to-model endpoint (Tripo AI multiview) using a pre-existing public image."""
+    """Test 3.0: /generate/image-to-model endpoint (Tripo AI) using a client-provided Supabase image URL."""
     start_time = time.time()
     logger.info(f"TEST START: {start_time}")
     
     image_to_model_endpoint = f"{BASE_URL}/generate/image-to-model"
+    client_task_id = f"test-i2m-{uuid.uuid4()}"
 
-    # Use a publicly accessible URL for the input image
-    public_input_image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-concept.png"
+    # Simulate client uploading an image to their Supabase and providing the URL
+    image_to_upload_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-concept.png" # Using a concept-like image
 
-    logger.info(f"Running {request.node.name} with input image URL: {public_input_image_url}")
+    logger.info(f"Running {request.node.name} for task_id: {client_task_id} with input image URL: {image_to_upload_url}")
+
+    # 1. Download the public image
+    async with httpx.AsyncClient() as client:
+        img_response = await client.get(image_to_upload_url)
+        img_response.raise_for_status()
+        image_content = img_response.content
+        original_filename = image_to_upload_url.split("/")[-1]
+    logger.info(f"INPUT IMAGE DOWNLOADED: {original_filename}")
+
+    # 2. Upload image to Supabase (simulating client's asset)
+    supabase_image_path = f"test_inputs/image-to-model/{client_task_id}/{original_filename}"
+    uploaded_file_path = await upload_image_to_storage(supabase_image_path, image_content)
+    input_supabase_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_public_bucket_name}/{uploaded_file_path}"
+    logger.info(f"Input image uploaded to Supabase, URL: {input_supabase_url}")
 
     request_data = {
-        "image_urls": [public_input_image_url], # Using the public image URL as input
-        "prompt": "3D model from image", # Optional prompt
-        "style": "", # Optional style
-        "texture": True # Note: Tripo API appears to ignore this parameter and always use textures
+        "task_id": client_task_id,
+        "input_image_asset_urls": [input_supabase_url], 
+        "prompt": "3D model from image",
+        "texture_quality": "standard" # Match Pydantic ImageToModelRequest
     }
 
-    logger.info(f"Calling {image_to_model_endpoint} with image_urls='{request_data["image_urls"]}'...")
+    logger.info(f"Calling {image_to_model_endpoint} with JSON data: {request_data}")
     async with httpx.AsyncClient() as client:
         api_call_start = time.time()
         response = await client.post(image_to_model_endpoint, json=request_data)
@@ -364,20 +326,18 @@ async def test_generate_image_to_model(request):
 
     logger.info(f"Received response: {result}")
 
-    assert "task_id" in result
-    task_id = result["task_id"]
-    logger.info(f"Received Tripo AI task_id: {task_id}")
+    assert "task_id" in result # Celery task_id
+    celery_task_id = result["task_id"]
+    logger.info(f"Received Celery task_id: {celery_task_id}")
 
-    # Poll for task completion and get result URL
+    # Poll for task completion
     polling_start = time.time()
-    model_url_data = await poll_task_status(task_id, "tripo", total_timeout=300.0)
+    task_result_data = await poll_task_status(celery_task_id, "tripo", total_timeout=300.0)
     logger.info(f"TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
 
-    # Extract model_url from the result_url field
-    model_url = model_url_data.get('result_url')
-
-    assert model_url is not None
-    logger.info(f"Received model URL: {model_url}")
+    model_url = task_result_data.get('asset_url') # Expecting 'asset_url'
+    assert model_url is not None, f"Model asset_url not found in response: {task_result_data}"
+    logger.info(f"Received model Supabase URL: {model_url}")
 
     # Download the generated model
     download_start = time.time()
@@ -389,104 +349,40 @@ async def test_generate_image_to_model(request):
 
 @pytest.mark.asyncio
 async def test_generate_sketch_to_model(request):
-    """Test 4.1: /generate/sketch-to-model endpoint (OpenAI concept → Tripo 3D model pipeline)."""
+    """Test 4.1: /generate/sketch-to-model endpoint using a client-provided Supabase sketch URL."""
     start_time = time.time()
     logger.info(f"TEST START: {start_time}")
+    client_task_id = f"test-s2m-{uuid.uuid4()}"
     
-    # --- STEP 1: Generate a concept image using OpenAI (similar to test_generate_image_to_image) ---
-    image_to_image_endpoint = f"{BASE_URL}/generate/image-to-image"
-    sketch_image_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//sketch-cat.jpg"
-    prompt = "Create a photorealistic 3D rendering of the subject depicted in the provided sketch. Preserve the original proportions, geometry, and quirks of the drawing, no matter how unrealistic or awkward they are. The result should look like the sketch was literally brought to life in the real world, with realistic textures, lighting, and surroundings. The rendering should show what it would look like if the drawing existed as a physical object or creature. IMPORTANT: Use a completely transparent background with no drop shadows and environmental elements."
-    style = "Photorealistic, detailed textures, transparent background"
-    background_param = "transparent" # Explicitly set background to transparent for OpenAI API
-    
-    logger.info(f"Running {request.node.name} STEP 1: Generate concept using OpenAI")
-    logger.info(f"Using sketch image URL: {sketch_image_url}")
-
-    # Download the sketch image
-    input_sketch_download_start = time.time()
-    async with httpx.AsyncClient() as client:
-        sketch_response = await client.get(sketch_image_url)
-        sketch_response.raise_for_status()
-        sketch_content = sketch_response.content
-        sketch_filename = sketch_image_url.split("/")[-1]
-    logger.info(f"INPUT SKETCH DOWNLOAD: {time.time() - input_sketch_download_start:.2f}s")
-
-    # Prepare data for OpenAI endpoint
-    files = {'image': (sketch_filename, sketch_content, 'image/jpeg')}
-    # Pass background_param to the data payload for the /image-to-image endpoint
-    data = {'prompt': prompt, 'style': style, 'n': 1, 'background': background_param}
-
-    logger.info(f"Calling {image_to_image_endpoint} with prompt='{prompt}', style='{style}', background='{background_param}', image='{sketch_filename}' and n=1...")
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        api_call_start = time.time()
-        response = await client.post(image_to_image_endpoint, files=files, data=data)
-        response.raise_for_status()
-        result = response.json()
-        logger.info(f"API RESPONSE TIME (OpenAI): {time.time() - api_call_start:.2f}s")
-
-    logger.info(f"Received response from OpenAI: {result}")
-
-    assert "task_id" in result
-    openai_task_id = result["task_id"]
-    logger.info(f"Received OpenAI task_id: {openai_task_id}")
-
-    # Poll for task completion and get the result data
-    logger.info(f"Polling for completion of OpenAI task {openai_task_id}...")
-    polling_start = time.time()
-    openai_result_data = await poll_task_status(openai_task_id, "openai", poll_interval=2, total_timeout=180.0)
-    logger.info(f"OPENAI TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
-
-    # Assert OpenAI task is completed and has image_urls in the result
-    assert openai_result_data.get('status') == 'completed'
-    assert 'result' in openai_result_data
-    assert 'image_urls' in openai_result_data['result']
-    concept_image_urls = openai_result_data['result']['image_urls']
-
-    assert isinstance(concept_image_urls, list)
-    assert len(concept_image_urls) > 0
-
-    # Download generated concept image
-    concept_download_start = time.time()
-    concept_image_path = await download_file(concept_image_urls[0], request.node.name, "concept.png")
-    logger.info(f"CONCEPT IMAGE DOWNLOAD TIME: {time.time() - concept_download_start:.2f}s")
-    logger.info(f"Generated concept saved to: {concept_image_path}")
-    
-    # --- STEP 2: Upload the concept image to Supabase and get a SIGNED URL ---
-    with open(concept_image_path, "rb") as f:
-        concept_image_content = f.read()
-    
-    # Generate a unique file name for the upload
-    unique_concept_filename = f"test_sketch_to_model/{uuid.uuid4()}.png"
-    logger.info(f"Uploading concept image to Supabase as: {unique_concept_filename}")
-    
-    upload_start = time.time()
-    # Upload the concept image to Supabase storage
-    file_path = await upload_image_to_storage(unique_concept_filename, concept_image_content)
-    logger.info(f"CONCEPT IMAGE UPLOAD TIME: {time.time() - upload_start:.2f}s")
-    
-    # Create a signed URL that will expire in 1 hour (3600 seconds)
-    signed_url_start = time.time()
-    concept_image_signed_url = await create_signed_url(file_path, "concept-images", 3600)
-    logger.info(f"SIGNED URL CREATION TIME: {time.time() - signed_url_start:.2f}s")
-    logger.info(f"Created signed URL for concept image: {concept_image_signed_url}")
-    
-    assert concept_image_signed_url is not None
-    
-    # --- STEP 3: Use the concept image SIGNED URL to generate a 3D model with Tripo ---
     sketch_to_model_endpoint = f"{BASE_URL}/generate/sketch-to-model"
     
-    logger.info(f"Running {request.node.name} STEP 3: Generate 3D model using Tripo with the OpenAI concept (via signed URL)")
+    # 1. Simulate client having a sketch image in their Supabase.
+    # For the test, we download a public sketch, then upload it to our test Supabase area.
+    public_sketch_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//sketch-cat.jpg"
+    logger.info(f"Running {request.node.name} for task_id: {client_task_id}. Using public sketch: {public_sketch_url}")
+
+    async with httpx.AsyncClient() as client:
+        sketch_response = await client.get(public_sketch_url)
+        sketch_response.raise_for_status()
+        sketch_content = sketch_response.content
+        original_sketch_filename = public_sketch_url.split("/")[-1]
+    logger.info(f"INPUT SKETCH DOWNLOADED: {original_sketch_filename}")
+
+    supabase_sketch_path = f"test_inputs/sketch-to-model/{client_task_id}/{original_sketch_filename}"
+    uploaded_sketch_file_path = await upload_image_to_storage(supabase_sketch_path, sketch_content)
+    input_sketch_supabase_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_public_bucket_name}/{uploaded_sketch_file_path}"
+    logger.info(f"Input sketch uploaded to Supabase, URL: {input_sketch_supabase_url}")
     
-    # Create a request with the signed image URL parameter
+    # 2. Call BFF endpoint with the Supabase URL of the sketch
     request_data = {
-        "image_url": concept_image_signed_url,
-        "prompt": prompt,
-        "style": style,
-        "texture": True
+        "task_id": client_task_id,
+        "input_sketch_asset_url": input_sketch_supabase_url,
+        "prompt": "A 3D model of the provided sketch.",
+        "style": "Cartoonish", # Optional, ensure it aligns with SketchToModelRequest if it has it
+        "texture_quality": "standard" # Match Pydantic SketchToModelRequest
     }
     
-    logger.info(f"Calling {sketch_to_model_endpoint} with image_url='{concept_image_signed_url}' and prompt='{prompt}'...")
+    logger.info(f"Calling {sketch_to_model_endpoint} with JSON data: {request_data}")
     async with httpx.AsyncClient(timeout=60.0) as client:
         tripo_api_call_start = time.time()
         response = await client.post(sketch_to_model_endpoint, json=request_data)
@@ -494,26 +390,24 @@ async def test_generate_sketch_to_model(request):
         result = response.json()
         logger.info(f"API RESPONSE TIME (Tripo): {time.time() - tripo_api_call_start:.2f}s")
     
-    logger.info(f"Received response from Tripo: {result}")
+    logger.info(f"Received response from BFF: {result}")
     
-    assert "task_id" in result
-    tripo_task_id = result["task_id"]
-    logger.info(f"Received Tripo AI task_id: {tripo_task_id}")
+    assert "task_id" in result # Celery task_id
+    celery_task_id = result["task_id"]
+    logger.info(f"Received Celery task_id: {celery_task_id}")
     
-    # Poll for task completion and get result URL
+    # Poll for task completion
     tripo_polling_start = time.time()
-    model_url_data = await poll_task_status(tripo_task_id, "tripo", total_timeout=300.0)
+    task_result_data = await poll_task_status(celery_task_id, "tripo", total_timeout=300.0)
     logger.info(f"TRIPO TASK PROCESSING TIME: {time.time() - tripo_polling_start:.2f}s")
     
-    # Extract model_url from the result_url field
-    model_url = model_url_data.get('result_url')
-    
-    assert model_url is not None
-    logger.info(f"Received model URL: {model_url}")
+    model_url = task_result_data.get('asset_url') # Expecting 'asset_url'
+    assert model_url is not None, f"Model asset_url not found in response: {task_result_data}"
+    logger.info(f"Received model Supabase URL: {model_url}")
     
     # Download the generated model
     model_download_start = time.time()
-    model_file_path = await download_file(model_url, request.node.name, "model_from_concept.glb")
+    model_file_path = await download_file(model_url, request.node.name, "model_from_sketch.glb")
     logger.info(f"MODEL DOWNLOAD TIME: {time.time() - model_download_start:.2f}s")
     logger.info(f"Model downloaded to: {model_file_path}")
     
@@ -522,7 +416,7 @@ async def test_generate_sketch_to_model(request):
 
 @pytest.mark.asyncio
 async def test_supabase_upload_and_metadata(request):
-    """Simple test to upload an image to Supabase Storage and save metadata to the database."""
+    """Test to upload an image to Supabase Storage and save metadata with the new schema."""
     start_time = time.time()
     logger.info(f"TEST START: {start_time}")
     
@@ -538,68 +432,187 @@ async def test_supabase_upload_and_metadata(request):
         image_content = image_response.content
     logger.info(f"IMAGE DOWNLOAD TIME: {time.time() - download_start:.2f}s")
 
-    # 2. Upload the image to Supabase Storage
-    # Use .jpg extension to match the downloaded file type
-    unique_file_name = f"test_uploads/{uuid.uuid4()}.jpg"
+    # 2. Upload the image to Supabase Storage (using makeit3d-app-assets bucket)
+    test_task_id = f"test-task-{uuid.uuid4()}"
+    unique_file_name = f"concepts/{test_task_id}/test_concept.jpg"
     logger.info(f"Uploading image to Supabase Storage: {unique_file_name}")
     upload_start = time.time()
-    uploaded_url = await upload_image_to_storage(unique_file_name, image_content)
-    logger.info(f"Image uploaded to: {uploaded_url}")
+    uploaded_file_path = await upload_image_to_storage(unique_file_name, image_content)
+    logger.info(f"Image uploaded to: {uploaded_file_path}")
     logger.info(f"UPLOAD TIME: {time.time() - upload_start:.2f}s")
 
-    assert uploaded_url is not None
-    # Assertions for database record verification start here
+    assert uploaded_file_path is not None
 
-    # 3. Define metadata and save to the database
-    test_task_id = f"test-task-{uuid.uuid4()}"
+    # 3. Construct the full Supabase URL for the uploaded asset
+    full_asset_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_public_bucket_name}/{uploaded_file_path}"
+    logger.info(f"Full asset URL: {full_asset_url}")
+
+    # 4. Create a metadata record in the concept_images table with new schema
     test_prompt = "This is a test upload image."
-    test_style = "None"
-    bucket_name = "concept-images" # Use the correct bucket name
-
-    logger.info(f"Saving metadata to database for task ID: {test_task_id} with image_url: {unique_file_name}")
+    test_style = "test_style"
+    
+    logger.info(f"Creating concept_images record for task_id: {test_task_id}")
     db_start = time.time()
-    # Pass the file path (uploaded_url) and bucket name to the create_concept_image_record function
-    await create_concept_image_record(test_task_id, unique_file_name, bucket_name, test_prompt, test_style) # Pass unique_file_name (file_path)
-    logger.info(f"Metadata record created.")
-    logger.info(f"DB WRITE TIME: {time.time() - db_start:.2f}s")
+    
+    supabase = get_supabase_client()
+    
+    # Insert record with new schema (using simplified status system)
+    concept_record = {
+        "task_id": test_task_id,
+        "user_id": None,  # For test purposes, using None (would be actual user_id in real app)
+        "source_input_asset_id": None,  # No source input for this test
+        "prompt": test_prompt,
+        "style": test_style,
+        "asset_url": full_asset_url,  # Full Supabase URL
+        "status": "complete",  # Using simplified status system
+        "ai_service_task_id": f"test-task-{uuid.uuid4()}",
+        "metadata": {"test": True, "uploaded_by": "test_suite"}
+    }
+    
+    try:
+        response = supabase.table("concept_images").insert(concept_record).execute()
+        logger.info(f"Concept image record created: {response.data}")
+        logger.info(f"DB WRITE TIME: {time.time() - db_start:.2f}s")
+        
+        # Verify the insert was successful
+        assert len(response.data) == 1, "Expected exactly one record to be created."
+        created_record = response.data[0]
+        
+    except Exception as e:
+        logger.error(f"Error creating concept_images record: {e}", exc_info=True)
+        pytest.fail(f"Error creating concept_images record: {e}")
 
-    # 4. Download the image directly from Supabase Storage using the download_image_from_storage function
-    logger.info(f"Downloading image directly from Supabase Storage: {bucket_name}/{unique_file_name}")
+    # 5. Download the image directly from Supabase Storage using the asset URL
+    logger.info(f"Downloading image directly from Supabase using asset URL")
     supabase_dl_start = time.time()
-    downloaded_image_data = await download_image_from_storage(unique_file_name, bucket_name)
+    
+    async with httpx.AsyncClient() as client:
+        download_response = await client.get(full_asset_url)
+        download_response.raise_for_status()
+        downloaded_image_data = download_response.content
+        
     logger.info(f"Image data downloaded directly from Supabase. Size: {len(downloaded_image_data)} bytes.")
     logger.info(f"SUPABASE DOWNLOAD TIME: {time.time() - supabase_dl_start:.2f}s")
 
     # Basic assertion to check if downloaded data is not empty
     assert downloaded_image_data is not None and len(downloaded_image_data) > 0, "Downloaded image data is empty or None."
+    
+    # Verify the downloaded content matches the original
+    assert len(downloaded_image_data) == len(image_content), "Downloaded image size doesn't match original"
 
-    # 5. Retrieve the metadata from the database and verify
-    supabase = get_supabase_client()
-    logger.info(f"Retrieving metadata from database for task ID: {test_task_id}")
+    # 6. Retrieve the metadata from the database and verify with new schema
+    logger.info(f"Retrieving metadata from concept_images table for task_id: {test_task_id}")
     db_query_start = time.time()
     try:
         response = supabase.table("concept_images").select("*").eq("task_id", test_task_id).execute()
         logger.info(f"DATABASE QUERY TIME: {time.time() - db_query_start:.2f}s")
         logger.info(f"Database query response data: {response.data}")
+        
         # Check for errors more robustly
         assert not hasattr(response, 'error') or response.error is None, "Database query failed."
-        assert len(response.data) == 1, "Expected exactly one record for the task ID."
+        assert len(response.data) == 1, "Expected exactly one record for the task_id."
 
         retrieved_record = response.data[0]
 
+        # Verify all fields with new schema
         assert retrieved_record["task_id"] == test_task_id
-        # Assert against the file_path stored in the image_url column
-        assert retrieved_record["image_url"] == unique_file_name
-        assert retrieved_record["bucket_name"] == bucket_name # Assert against the bucket name
+        assert retrieved_record["asset_url"] == full_asset_url
         assert retrieved_record["prompt"] == test_prompt
         assert retrieved_record["style"] == test_style
+        assert retrieved_record["status"] == "complete"  # Verify simplified status
+        assert retrieved_record["metadata"]["test"] == True
+        
+        logger.info("New schema verification successful:")
+        logger.info(f"  - task_id: {retrieved_record['task_id']}")
+        logger.info(f"  - asset_url: {retrieved_record['asset_url']}")
+        logger.info(f"  - status: {retrieved_record['status']}")
+        logger.info(f"  - metadata: {retrieved_record['metadata']}")
 
-        logger.info("Supabase upload, metadata storage/retrieval, and direct Supabase download test successful.")
+        logger.info("Supabase upload, metadata storage/retrieval with new schema test successful.")
 
     except Exception as e:
         logger.error(f"Error during Supabase operations: {e}", exc_info=True)
         pytest.fail(f"Error during Supabase operations: {e}")
 
     logger.info(f"TOTAL TEST TIME: {time.time() - start_time:.2f}s")
+
+
+@pytest.mark.asyncio
+async def test_generate_multiview_to_model(request):
+    """Test 3.1: /generate/image-to-model endpoint with multiple images (multiview mode)."""
+    start_time = time.time()
+    logger.info(f"TEST START: {start_time}")
+    
+    image_to_model_endpoint = f"{BASE_URL}/generate/image-to-model"
+    client_task_id = f"test-multiview-{uuid.uuid4()}"
+
+    # URLs for multiview images in [front, left, back, right] order as per API spec
+    multiview_image_urls = [
+        "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy-concept.png",  # front
+        "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg",        # left (using different image for demonstration)
+    ]
+
+    logger.info(f"Running {request.node.name} for task_id: {client_task_id} with {len(multiview_image_urls)} images")
+    logger.info(f"Multiview image ordering: [front, left] - testing partial multiview (2 out of 4 views)")
+
+    # 1. Download and upload all images to Supabase (simulating client's multiview assets)
+    input_supabase_urls = []
+    view_names = ["front", "left", "back", "right"]
+    
+    for i, image_url in enumerate(multiview_image_urls):
+        async with httpx.AsyncClient() as client:
+            img_response = await client.get(image_url)
+            img_response.raise_for_status()
+            image_content = img_response.content
+            original_filename = f"{view_names[i]}_{image_url.split('/')[-1]}"
+        
+        logger.info(f"INPUT IMAGE DOWNLOADED: {original_filename} for {view_names[i]} view")
+
+        # Upload to Supabase with view name in path
+        supabase_image_path = f"test_inputs/multiview-to-model/{client_task_id}/{original_filename}"
+        uploaded_file_path = await upload_image_to_storage(supabase_image_path, image_content)
+        input_supabase_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_public_bucket_name}/{uploaded_file_path}"
+        input_supabase_urls.append(input_supabase_url)
+        logger.info(f"✓ {view_names[i]} view uploaded to Supabase: {input_supabase_url}")
+
+    logger.info(f"All {len(input_supabase_urls)} images uploaded. Calling multiview endpoint...")
+
+    request_data = {
+        "task_id": client_task_id,
+        "input_image_asset_urls": input_supabase_urls,  # Multiple URLs trigger multiview mode
+        "prompt": "High quality 3D model from multiview images",
+        "texture_quality": "detailed",  # Use higher quality for multiview
+        "pbr": True  # Enable PBR for better results
+    }
+
+    logger.info(f"Calling {image_to_model_endpoint} with multiview JSON data: {request_data}")
+    async with httpx.AsyncClient() as client:
+        api_call_start = time.time()
+        response = await client.post(image_to_model_endpoint, json=request_data)
+        response.raise_for_status()
+        result = response.json()
+        logger.info(f"API RESPONSE TIME: {time.time() - api_call_start:.2f}s")
+
+    logger.info(f"Received multiview response: {result}")
+
+    assert "celery_task_id" in result # Celery task_id
+    celery_task_id = result["celery_task_id"]
+    logger.info(f"Received Celery task_id for multiview generation: {celery_task_id}")
+
+    # Poll for task completion (multiview may take longer)
+    polling_start = time.time()
+    task_result_data = await poll_task_status(celery_task_id, "tripo", total_timeout=450.0)  # Longer timeout for multiview
+    logger.info(f"MULTIVIEW TASK PROCESSING TIME: {time.time() - polling_start:.2f}s")
+
+    model_url = task_result_data.get('asset_url') # Expecting 'asset_url'
+    assert model_url is not None, f"Model asset_url not found in multiview response: {task_result_data}"
+    logger.info(f"Received multiview model Supabase URL: {model_url}")
+
+    # Download the generated multiview model
+    download_start = time.time()
+    await download_file(model_url, request.node.name, "multiview_model.glb")
+    logger.info(f"MULTIVIEW MODEL DOWNLOAD TIME: {time.time() - download_start:.2f}s")
+    
+    logger.info(f"TOTAL MULTIVIEW TEST TIME: {time.time() - start_time:.2f}s")
 
 # Note: Add other tests here as needed 

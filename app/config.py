@@ -7,6 +7,15 @@ class Settings(BaseSettings):
     bff_base_url: str # Add setting for BFF base URL
     sync_mode: bool = False # Add setting for synchronous mode for testing
     tripo_test_mode: bool = False # Add setting for Tripo test mode with fallback URL
+
+    # Supabase Configuration
+    supabase_url: str
+    supabase_service_key: str
+    input_assets_table_name: str = "input_assets"
+    concept_images_table_name: str = "concept_images"
+    models_table_name: str = "models"
+    generated_assets_bucket_name: str = "makeit3d-app-assets"
+
     # Add other settings here as needed
 
     # API Rate Limiting for BFF endpoints

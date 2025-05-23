@@ -57,6 +57,6 @@ async def poll_image_to_image_status(task_id: str) -> Dict[str, Any]:
     """Simulates polling for OpenAI image generation task status (synchronous API)."""
     # OpenAI's image generation and edit APIs (DALL-E) are synchronous and return results directly.
     # Polling is not required for these tasks. This function exists to satisfy the polling endpoint structure.
-    logger.info(f"Status requested for OpenAI task ID: {task_id}. OpenAI image APIs are synchronous, status is always 'completed'.")
-    # Return a simulated completed status.
-    return {"status": "completed", "progress": 100.0, "result_url": None} # Return None for result_url as BFF doesn't store it 
+    logger.info(f"Status requested for OpenAI task ID: {task_id}. OpenAI image APIs are synchronous, status is always 'complete'.")
+    # Return a simulated complete status.
+    return {"status": "complete", "progress": 100.0, "result_url": None} # Return None for result_url as BFF doesn't store it 
