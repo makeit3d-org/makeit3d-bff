@@ -37,14 +37,51 @@ The BFF updates your Supabase tables (`concept_images`, `models`) with metadata,
 
 ## Authentication
 
-Include your API key in requests:
+**The API requires both an API key and a valid Supabase JWT token:**
 
 ```javascript
 headers: {
   'X-API-Key': 'your-api-key',
+  'Authorization': 'Bearer <supabase-jwt-token>',
   'Content-Type': 'application/json'
 }
 ```
+
+### Getting JWT Tokens
+
+Obtain JWT tokens through Supabase Auth in your frontend:
+
+```javascript
+// In your React Native app with Supabase
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  'https://iadsbhyztbokarclnzzk.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZHNiaHl6dGJva2FyY2xuenprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MjM4MDUsImV4cCI6MjA2MzA5OTgwNX0.HeTNAhHhCdOoadHJOUeyHEQxo9f5Ole6GxJqYCORS78'
+);
+
+// Login and get session
+const { data: { session }, error } = await supabase.auth.signInWithPassword({
+  email: 'user@example.com',
+  password: 'password'
+});
+
+// Use session.access_token in Authorization header
+const token = session?.access_token;
+```
+
+### Auth Error Responses
+
+| Code | Response | Description |
+|------|----------|-------------|
+| `401` | `{"error": "unauthorized", "message": "Missing or invalid token"}` | No Authorization header or invalid JWT |
+| `403` | `{"error": "forbidden", "message": "Access denied"}` | Valid token but insufficient permissions |
+
+### Test Users
+
+For development, you can use these existing test accounts:
+- `test@example.com` (ID: `00000000-0000-4000-8000-000000000001`)  
+- `test-user@example.com` (ID: `123e4567-e89b-12d3-a456-426614174000`)
 
 ---
 
@@ -201,7 +238,12 @@ Poll for real-time updates on your generation tasks.
 
 **Example:**
 ```javascript
-const response = await fetch(`/tasks/abc123xyz456/status?service=tripoai`);
+const response = await fetch(`/tasks/abc123xyz456/status?service=tripoai`, {
+  headers: {
+    'Authorization': `Bearer ${session.access_token}`,
+    'X-API-Key': 'your-api-key'
+  }
+});
 ```
 
 **Response States:**
@@ -253,7 +295,11 @@ const inputImageUrl = await uploadToSupabase(imageFile, taskId);
 // 2. Start generation
 const genResponse = await fetch('/generation/image-to-image', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${session.access_token}`,
+    'X-API-Key': 'your-api-key'
+  },
   body: JSON.stringify({
     task_id: taskId,
     prompt: "Transform into cyberpunk style",
@@ -266,7 +312,12 @@ const { celery_task_id } = await genResponse.json();
 
 // 3. Poll for completion
 const pollStatus = async () => {
-  const response = await fetch(`/tasks/${celery_task_id}/status?service=openai`);
+  const response = await fetch(`/tasks/${celery_task_id}/status?service=openai`, {
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'X-API-Key': 'your-api-key'
+    }
+  });
   const status = await response.json();
   
   if (status.status === 'complete') return status.asset_url;
@@ -292,7 +343,11 @@ const rightUrl = await uploadToSupabase(rightImage, `${taskId}/right.png`);
 // 2. Generate multiview model
 const response = await fetch('/generation/image-to-model', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${session.access_token}`,
+    'X-API-Key': 'your-api-key'
+  },
   body: JSON.stringify({
     task_id: taskId,
     input_image_asset_urls: [frontUrl, leftUrl, backUrl, rightUrl], // Exact order required

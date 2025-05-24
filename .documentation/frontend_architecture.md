@@ -39,14 +39,20 @@ The app handles user authentication (e.g., Supabase Auth) and is designed for in
 *   **UI Components**: `react-native-paper` (example).
 *   **3D Rendering**: `react-three-fiber`, `@react-three/drei`, `expo-gl`.
 *   **State Management**: Zustand, React Context API (managing `task_id` state, data from Supabase tables).
-*   **Authentication**: Supabase Auth (via `@supabase/supabase-js` library). Utilizes AsyncStorage or SecureStore for session persistence.
+*   **Authentication**: Supabase Auth (via `@supabase/supabase-js` library). 
+    *   Project: MakeIt3D (`iadsbhyztbokarclnzzk`) 
+    *   Anon Key: Already configured for JWT validation
+    *   Utilizes AsyncStorage or SecureStore for session persistence
+    *   JWT tokens sent to BFF via Authorization header
 *   **Data Fetching & Client-Server State**: TanStack Query (React Query) for interacting with both the BFF API and Supabase.
 *   **Supabase Client Library**: For direct database and storage interaction.
 
 ### API Communication (BFF Centric - Refactored):
+    *   **Authentication**: Client includes JWT token in `Authorization: Bearer <token>` header for all BFF requests
     *   Client generates `task_id` for each job.
     *   For image/sketch inputs: Client uploads to its Supabase Storage, creates a record in its `input_assets` table, then calls BFF with the `task_id` and the asset's Supabase URL.
     *   Calls BFF endpoints (e.g., `/generate/image-to-image`, `/generate/text-to-model`) with `task_id` and relevant parameters (including Supabase URLs for inputs).
+    *   **User Isolation**: BFF validates JWT token and extracts `user_id` to ensure data isolation via RLS policies
     *   Polls BFF `GET /tasks/{task_id}/status?service={service}` for real-time AI step status.
     *   BFF, upon completing an AI step, stores the output asset in Supabase Storage and updates the client's `concept_images` or `models` table (including status and final asset URL).
     *   Client primarily queries its own Supabase tables (`input_assets`, `concept_images`, `models`) to display persisted job status and asset URLs.
@@ -184,18 +190,40 @@ The app handles user authentication (e.g., Supabase Auth) and is designed for in
 
 ## 8. Implementation Tasks (High-Level - Frontend Focus)
 
-*   [ ] Setup Supabase client, RLS policies for client tables.
-*   [ ] Implement client-side logic for `task_id` generation.
-*   [ ] Setup Supabase Auth: initialize client, configure auth providers (email/password, OAuth), manage session state.
-*   [ ] Implement deep linking for Supabase Auth (OAuth, magic links).
-*   [ ] Create UI components for login, sign-up, and profile management using Supabase Auth.
-*   [ ] Implement Supabase Storage upload functionality for images/sketches.
-*   [ ] Implement CRUD operations for `input_assets`, `concept_images`, `models` tables in Supabase via `supabaseDbService.ts` (from the updated directory structure).
-*   [ ] Update `CreationHubScreen` forms to integrate Supabase uploads and `input_assets` record creation.
-*   [ ] Update `bffService.ts` to call refactored BFF endpoints with `task_id` and Supabase asset URLs.
-*   [ ] Implement polling logic for `GET /tasks/{task_id}/status` and update UI accordingly during active AI steps.
-*   [ ] Ensure `ConceptSelectionScreen` and `EditorScreen` fetch asset URLs from the client's `concept_images` and `models` tables respectively.
-*   [ ] Refine Workspace Section to display job status based on data from the client's three Supabase tables.
+### Auth & Infrastructure Setup
+*   [ ] **CRITICAL: Execute RLS fix SQL** (see SUPABASE_AUTH_SETUP.sql) - enables security for models table
+*   [ ] Setup Supabase client with project config:
+    ```typescript
+    const supabase = createClient(
+      'https://iadsbhyztbokarclnzzk.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZHNiaHl6dGJva2FyY2xuenprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MjM4MDUsImV4cCI6MjA2MzA5OTgwNX0.HeTNAhHhCdOoadHJOUeyHEQxo9f5Ole6GxJqYCORS78'
+    );
+    ```
+*   [ ] Setup Supabase Auth: initialize client, configure auth providers (email/password, OAuth), manage session state
+*   [ ] Implement JWT token handling for BFF API calls (Authorization header)
+*   [ ] Implement deep linking for Supabase Auth (OAuth, magic links)
+
+### UI & Auth Components  
+*   [ ] Create UI components for login, sign-up, and profile management using Supabase Auth
+*   [ ] Add auth state management (login/logout, session persistence)
+*   [ ] Implement protected routes (require authentication)
+*   [ ] Add auth error handling (token expired, invalid, etc.)
+
+### Core App Features
+*   [ ] Implement client-side logic for `task_id` generation
+*   [ ] Implement Supabase Storage upload functionality for images/sketches
+*   [ ] Implement CRUD operations for `input_assets`, `concept_images`, `models` tables via `supabaseDbService.ts`
+*   [ ] Update `CreationHubScreen` forms to integrate Supabase uploads and `input_assets` record creation
+*   [ ] Update `bffService.ts` to call refactored BFF endpoints with `task_id`, Supabase asset URLs, and auth headers
+*   [ ] Implement polling logic for `GET /tasks/{task_id}/status` and update UI accordingly during active AI steps
+*   [ ] Ensure `ConceptSelectionScreen` and `EditorScreen` fetch asset URLs from the client's `concept_images` and `models` tables respectively
+*   [ ] Refine Workspace Section to display job status based on data from the client's three Supabase tables
+
+### Testing & Validation
+*   [ ] Test with existing users: `test@example.com` and `test-user@example.com`
+*   [ ] Verify RLS policies work (users can only see their own data)
+*   [ ] Test auth flows (login/logout/session refresh)
+*   [ ] Test BFF integration with valid JWT tokens
 
 ---
 *This document reflects changes based on BFF API v1.1.0 and the agreed Supabase interaction model.*
