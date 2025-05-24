@@ -51,6 +51,60 @@ For more advanced test options, use the Python runner:
 ./tests/run_tests.py path/to/test.py -s
 ```
 
+## TEST Mode Configuration
+
+The backend supports a special **TEST mode** that changes where assets are stored in Supabase Storage. This is crucial for keeping test data separate from production data.
+
+### What TEST Mode Does
+
+- **Production Mode** (default): Assets are stored in production folders (`concepts/`, `models/`)
+- **TEST Mode**: Assets are stored in test folders (`test_inputs/`, `test_outputs/`)
+
+### Enabling TEST Mode
+
+To run Docker containers with TEST mode enabled, you need to set the `TEST_ASSETS_MODE` environment variable **before** starting the containers:
+
+```bash
+# Export the environment variable in your current shell
+export TEST_ASSETS_MODE=True
+
+# Start Docker containers with TEST mode enabled
+docker-compose up
+
+# Or combine both commands
+TEST_ASSETS_MODE=True docker-compose up
+```
+
+### Restarting Containers for TEST Mode
+
+If you have already started Docker containers in production mode, you **must restart them** to enable TEST mode:
+
+```bash
+# Stop current containers
+docker-compose down
+
+# Export TEST mode variable
+export TEST_ASSETS_MODE=True
+
+# Start containers again
+docker-compose up
+```
+
+### Important Notes
+
+- **Celery Workers**: The environment variable must be set before starting containers because Celery workers in Docker need to see the TEST mode setting
+- **Path Isolation**: TEST mode ensures complete separation between test assets and production assets
+- **Auto-Detection**: The test runners automatically set `TEST_ASSETS_MODE=True` when running tests
+- **Manual Testing**: For manual API testing with test storage paths, use the environment variable method above
+
+### Verifying TEST Mode
+
+You can verify TEST mode is active by checking the logs when uploading assets. Look for messages like:
+
+```
+INFO: get_asset_folder_path detected already processed test path: 'test_inputs/image-to-model'
+```
+
 ## List Available Tests
 
 To see all available tests in the project, use:

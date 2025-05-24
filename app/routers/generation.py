@@ -114,7 +114,7 @@ async def generate_image_to_image_endpoint(
                     # Upload to Supabase Storage
                     supabase_url = await supabase_handler.upload_asset_to_storage(
                         task_id=request_data.task_id,
-                        asset_type_plural="concepts",
+                        asset_type_plural=supabase_handler.get_asset_type_for_concepts(),
                         file_name=f"{i}.png",
                         asset_data=image_data,
                         content_type="image/png"
@@ -256,7 +256,7 @@ async def generate_text_to_model_endpoint(request: Request, request_data: TextTo
             # Upload to our Supabase
             final_asset_url = await supabase_handler.upload_asset_to_storage(
                 task_id=request_data.task_id,
-                asset_type_plural="models",
+                asset_type_plural=supabase_handler.get_asset_type_for_models(),
                 file_name=simulated_filename,
                 asset_data=simulated_asset_data,
                 content_type="model/gltf-binary"
@@ -372,7 +372,7 @@ async def generate_image_to_model_endpoint(request: Request, request_data: Image
             
             final_asset_url = await supabase_handler.upload_asset_to_storage(
                 task_id=request_data.task_id,
-                asset_type_plural="models",
+                asset_type_plural=supabase_handler.get_asset_type_for_models(),
                 file_name=simulated_filename,
                 asset_data=simulated_asset_data,
                 content_type="model/gltf-binary"
@@ -492,7 +492,7 @@ async def generate_sketch_to_model_endpoint(request: Request, request_data: Sket
             
             final_asset_url = await supabase_handler.upload_asset_to_storage(
                 task_id=request_data.task_id,
-                asset_type_plural="models",
+                asset_type_plural=supabase_handler.get_asset_type_for_models(),
                 file_name=simulated_filename,
                 asset_data=simulated_asset_data,
                 content_type="model/gltf-binary"
@@ -595,7 +595,7 @@ async def refine_model_endpoint(request: Request, request_data: RefineModelReque
             
             final_refined_asset_url = await supabase_handler.upload_asset_to_storage(
                 task_id=request_data.task_id, # Use main task_id for folder structure
-                asset_type_plural="models",
+                asset_type_plural=supabase_handler.get_asset_type_for_models(),
                 file_name=simulated_refined_filename,
                 asset_data=simulated_refined_asset_data,
                 content_type="model/gltf-binary"

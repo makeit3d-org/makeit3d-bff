@@ -91,7 +91,7 @@ def generate_openai_image_task(self, concept_image_db_id: int, image_bytes: byte
                     
                     supabase_url = await supabase_handler.upload_asset_to_storage(
                         task_id=client_task_id, 
-                        asset_type_plural="concepts",
+                        asset_type_plural=supabase_handler.get_asset_type_for_concepts(),
                         file_name=file_name_in_bucket,
                         asset_data=current_image_bytes,
                         content_type="image/png"
@@ -267,7 +267,7 @@ def generate_tripo_text_to_model_task(self, model_db_id: str, request_data_dict:
                     # Upload to our Supabase
                     final_asset_url = await supabase_handler.upload_asset_to_storage(
                         task_id=client_task_id,
-                        asset_type_plural="models",
+                        asset_type_plural=supabase_handler.get_asset_type_for_models(),
                         file_name="model.glb",
                         asset_data=model_data_bytes,
                         content_type="model/gltf-binary"
@@ -423,7 +423,7 @@ def generate_tripo_image_to_model_task(self, model_db_id: str, image_bytes_list:
                     # Upload to our Supabase
                     final_asset_url = await supabase_handler.upload_asset_to_storage(
                         task_id=client_task_id,
-                        asset_type_plural="models",
+                        asset_type_plural=supabase_handler.get_asset_type_for_models(),
                         file_name="model.glb",
                         asset_data=model_data_bytes,
                         content_type="model/gltf-binary"
@@ -578,7 +578,7 @@ def generate_tripo_sketch_to_model_task(self, model_db_id: str, image_bytes: byt
                     # Upload to our Supabase
                     final_asset_url = await supabase_handler.upload_asset_to_storage(
                         task_id=client_task_id,
-                        asset_type_plural="models",
+                        asset_type_plural=supabase_handler.get_asset_type_for_models(),
                         file_name="model.glb",
                         asset_data=model_data_bytes,
                         content_type="model/gltf-binary"
@@ -733,7 +733,7 @@ def generate_tripo_refine_model_task(self, model_db_id: str, model_bytes: bytes,
                     # Upload to our Supabase
                     final_asset_url = await supabase_handler.upload_asset_to_storage(
                         task_id=client_task_id,
-                        asset_type_plural="models",
+                        asset_type_plural=supabase_handler.get_asset_type_for_models(),
                         file_name="refined_model.glb",
                         asset_data=model_data_bytes,
                         content_type="model/gltf-binary"

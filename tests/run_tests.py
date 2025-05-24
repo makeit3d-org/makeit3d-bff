@@ -126,21 +126,19 @@ def list_available_tests(test_path: str = "tests/test_endpoints.py") -> None:
 
 def main() -> int:
     """Main entry point"""
-    parser = argparse.ArgumentParser(description="Run MakeIt3D backend tests")
-    parser.add_argument("test_path", nargs="?", default="tests/test_endpoints.py", 
-                        help="Path to the test file or directory (default: tests/test_endpoints.py)")
-    parser.add_argument("-s", "--show-logs", action="store_true",
-                        help="Show full logs during test execution")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Increase verbosity of pytest output")
-    parser.add_argument("-t", "--test", 
-                        help="Run a specific test function (e.g., test_generate_image_to_image)")
-    parser.add_argument("-l", "--list", action="store_true",
-                        help="List available tests in the specified test path")
-    parser.add_argument("-f", "--failfast", action="store_true",
-                        help="Stop on first failure")
+    parser = argparse.ArgumentParser(description="MakeIt3D Backend Test Runner (Python)")
+    parser.add_argument("-t", "--test", help="Specific test function to run")
+    parser.add_argument("-l", "--list", action="store_true", help="List available tests")
+    parser.add_argument("-s", "--show-logs", action="store_true", help="Show logs during test execution")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("-f", "--fail-fast", action="store_true", help="Stop on first failure")
+    parser.add_argument("test_file", nargs="?", default="tests/test_endpoints.py", help="Test file to run (default: tests/test_endpoints.py)")
     
     args = parser.parse_args()
+    
+    # Set test mode environment variable for Docker containers
+    # This ensures all services (backend and celery workers) use test storage paths
+    os.environ["TEST_ASSETS_MODE"] = "True"
     
     print_banner()
     
@@ -153,16 +151,16 @@ def main() -> int:
     
     # List tests if requested
     if args.list:
-        list_available_tests(args.test_path)
+        list_available_tests(args.test_file)
         return 0
     
     # Run the tests
     return run_tests(
-        test_path=args.test_path,
+        test_path=args.test_file,
         show_logs=args.show_logs,
         verbose=args.verbose,
         specific_test=args.test,
-        failfast=args.failfast
+        failfast=args.fail_fast
     )
 
 if __name__ == "__main__":

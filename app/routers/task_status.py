@@ -7,6 +7,8 @@ from app.ai_clients import tripo_client
 from app.config import settings
 import httpx
 import base64 # For OpenAI, though asset is already stored by task. For Tripo, to decode if needed.
+from concurrent.futures import ThreadPoolExecutor
+from fastapi.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -117,43 +119,47 @@ async def get_task_status_endpoint(
 
                 if tripo_job_status == "success":
                     outputs = tripo_data.get("output", {})
-                    # Check for different output formats based on Tripo v2 API docs
-                    model_url = None
-                    if isinstance(outputs, dict):
-                        # Try pbr_model first (textured models)
-                        if outputs.get("pbr_model"):
-                            model_url = outputs["pbr_model"]
-                        elif outputs.get("base_model"):
-                            model_url = outputs["base_model"]  
-                        elif outputs.get("model"):
-                            model_url = outputs["model"]
-
-                    if not model_url:
-                        logger.error(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}) succeeded but no model URL. Output: {outputs}")
-                        await supabase_handler.update_model_record(task_id=client_task_id, model_id=db_record_id, status="failed")
-                        return TaskStatusResponse(task_id=celery_task_id, status="failed", error="No model asset URL from Tripo.")
-
-                    temp_tripo_asset_url = model_url
-                    original_model_filename = f"{db_record_id}.glb"  # Default filename
-                    logger.info(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}) complete. Downloading from {temp_tripo_asset_url}")
+                    # The Celery task should have already uploaded the model, so we just need to 
+                    # fetch the final asset URL from the database record
                     
-                    async with httpx.AsyncClient() as http_client:
-                        dl_response = await http_client.get(temp_tripo_asset_url, timeout=settings.TRIPO_DOWNLOAD_TIMEOUT_SECONDS)
-                        dl_response.raise_for_status()
-                        asset_data_bytes = dl_response.content
-                    logger.info(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}): Downloaded {len(asset_data_bytes)} bytes.")
+                    try:
+                        # Get the model record from database which should have the final asset URL
+                        from app.supabase_handler import supabase_client
+                        from app.config import settings
+                        
+                        def get_model_record():
+                            response = supabase_client.table(settings.models_table_name).select("*").eq("id", db_record_id).execute()
+                            return response.data[0] if response.data else None
+                        
+                        model_record = await run_in_threadpool(get_model_record)
+                        
+                        if not model_record:
+                            logger.error(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}) complete but model record not found")
+                            await supabase_handler.update_model_record(task_id=client_task_id, model_id=db_record_id, status="failed")
+                            return TaskStatusResponse(task_id=celery_task_id, status="failed", error="Model record not found in database")
+                        
+                        final_asset_url = model_record.get("asset_url")
+                        
+                        if not final_asset_url or final_asset_url == "pending":
+                            logger.error(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}) complete but no asset URL in database")
+                            await supabase_handler.update_model_record(task_id=client_task_id, model_id=db_record_id, status="failed")
+                            return TaskStatusResponse(task_id=celery_task_id, status="failed", error="No asset URL found in database")
 
-                    final_asset_filename = original_model_filename if '.' in original_model_filename else f"{db_record_id}.glb"
-                    final_asset_url = await supabase_handler.upload_asset_to_storage(
-                        task_id=client_task_id, asset_type_plural="models", file_name=final_asset_filename,
-                        asset_data=asset_data_bytes, content_type="model/gltf-binary")
-                    logger.info(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}): Uploaded to Supabase at {final_asset_url}")
-
-                    await supabase_handler.update_model_record(
-                        task_id=client_task_id, model_id=db_record_id, asset_url=final_asset_url,
-                        status="complete", ai_service_task_id=tripo_provider_task_id)
-                    logger.info(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}): Final DB record updated.")
-                    return TaskStatusResponse(task_id=celery_task_id, status="complete", asset_url=final_asset_url, progress=100)
+                        # Update the record status to complete
+                        await supabase_handler.update_model_record(
+                            task_id=client_task_id, 
+                            model_id=db_record_id, 
+                            status="complete", 
+                            ai_service_task_id=tripo_provider_task_id
+                        )
+                        
+                        logger.info(f"Tripo AI task {tripo_provider_task_id} (DB {db_record_id}): Using existing asset URL from database: {final_asset_url}")
+                        return TaskStatusResponse(task_id=celery_task_id, status="complete", asset_url=final_asset_url, progress=100)
+                        
+                    except Exception as e:
+                        logger.error(f"Error fetching model record {db_record_id}: {e}")
+                        await supabase_handler.update_model_record(task_id=client_task_id, model_id=db_record_id, status="failed")
+                        return TaskStatusResponse(task_id=celery_task_id, status="failed", error=f"Database error: {str(e)}")
 
                 elif tripo_job_status == "failed":
                     tripo_error_info = tripo_data.get("error", "Tripo AI task failed without specific error.")

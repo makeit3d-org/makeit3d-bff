@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0" # Default Redis URL
     bff_base_url: str # Add setting for BFF base URL
     sync_mode: bool = False # Add setting for synchronous mode for testing
-    tripo_test_mode: bool = False # Add setting for Tripo test mode with fallback URL
+    test_assets_mode: bool = False # Controls Supabase storage paths: test_outputs/ vs production paths
 
     # Supabase Configuration
     supabase_url: str

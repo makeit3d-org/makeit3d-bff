@@ -3,14 +3,67 @@ from app.config import settings
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 import httpx # For httpx.HTTPStatusError
+import logging
+
+logger = logging.getLogger(__name__)
 
 supabase_client: Client = create_client(settings.supabase_url, settings.supabase_service_key)
+
+def get_asset_folder_path(asset_type_plural: str) -> str:
+    """
+    Get the correct folder path for asset storage based on test_assets_mode setting.
+    
+    This ONLY controls where files are stored in Supabase, not API behavior.
+    
+    Args:
+        asset_type_plural: The base asset type (e.g., "concepts", "models", "input_assets")
+                          or already processed path (e.g., "test_outputs/concepts")
+    
+    Returns:
+        The full folder path to use for storage:
+        - Test mode: "test_outputs/concepts", "test_outputs/models", "test_inputs/...", etc.
+        - Production mode: "concepts", "models", "input_assets"
+    """
+    logger.info(f"get_asset_folder_path called with asset_type_plural='{asset_type_plural}', test_assets_mode={settings.test_assets_mode}")
+    
+    # Check if the path is already processed (contains test folders or slashes)
+    if asset_type_plural.startswith("test_outputs/") or asset_type_plural.startswith("test_inputs/"):
+        logger.info(f"get_asset_folder_path detected already processed test path: '{asset_type_plural}'")
+        return asset_type_plural
+    
+    if settings.test_assets_mode:
+        # In test mode, prefix with test_outputs for generated assets
+        if asset_type_plural in ["concepts", "models"]:
+            result = f"test_outputs/{asset_type_plural}"
+            logger.info(f"get_asset_folder_path returning test path: '{result}'")
+            return result
+        # For input assets in tests, keep test_inputs structure  
+        elif asset_type_plural.startswith("test_inputs"):
+            logger.info(f"get_asset_folder_path returning test_inputs path: '{asset_type_plural}'")
+            return asset_type_plural
+        else:
+            # Default test folder for other types
+            result = f"test_outputs/{asset_type_plural}"
+            logger.info(f"get_asset_folder_path returning default test path: '{result}'")
+            return result
+    else:
+        # Production mode - return as-is
+        logger.info(f"get_asset_folder_path returning production path: '{asset_type_plural}'")
+        return asset_type_plural
+
+def get_asset_type_for_concepts() -> str:
+    """Get the correct asset type for concept images based on test mode."""
+    return get_asset_folder_path("concepts")
+
+def get_asset_type_for_models() -> str:
+    """Get the correct asset type for 3D models based on test mode.""" 
+    return get_asset_folder_path("models")
 
 async def fetch_asset_from_storage(asset_supabase_url: str) -> bytes:
     """Downloads an asset from a given Supabase Storage URL.
 
     Args:
-        asset_supabase_url: The full public URL of the asset in Supabase Storage.
+        asset_supabase_url: The full URL of the asset in Supabase Storage (public or signed).
 
     Returns:
         The asset content as bytes.
@@ -24,17 +77,29 @@ async def fetch_asset_from_storage(asset_supabase_url: str) -> bytes:
     """
     try:
         normalized_supabase_url = settings.supabase_url.rstrip('/')
-        # Standard prefix for public Supabase storage object URLs
-        base_storage_path_prefix = "/storage/v1/object/public/"
-        expected_prefix = normalized_supabase_url + base_storage_path_prefix
-
-        if not asset_supabase_url.startswith(expected_prefix):
+        
+        # Check for both public and signed URL patterns
+        public_prefix = normalized_supabase_url + "/storage/v1/object/public/"
+        signed_prefix = normalized_supabase_url + "/storage/v1/object/sign/"
+        
+        is_public_url = asset_supabase_url.startswith(public_prefix)
+        is_signed_url = asset_supabase_url.startswith(signed_prefix)
+        
+        if not (is_public_url or is_signed_url):
             raise HTTPException(
                 status_code=400, 
-                detail=f"Invalid Supabase Storage URL. Must start with '{expected_prefix}'."
+                detail=f"Invalid Supabase Storage URL. Must start with '{public_prefix}' or '{signed_prefix}'."
             )
 
-        bucket_and_path_str = asset_supabase_url.removeprefix(expected_prefix)
+        # For signed URLs, download directly via HTTP (they already have authorization)
+        if is_signed_url:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(asset_supabase_url)
+                response.raise_for_status()
+                return response.content
+
+        # For public URLs, extract bucket and path for authenticated download
+        bucket_and_path_str = asset_supabase_url.removeprefix(public_prefix)
         
         if not bucket_and_path_str:
             raise HTTPException(status_code=400, detail="Bucket name and object path are missing in the URL.")
@@ -81,7 +146,7 @@ async def fetch_asset_from_storage(asset_supabase_url: str) -> bytes:
 
 async def upload_asset_to_storage(
     task_id: str, 
-    asset_type_plural: str, # e.g., "concepts", "models"
+    asset_type_plural: str, # e.g., "concepts", "models" or already processed paths like "test_outputs/concepts"
     file_name: str, # e.g., "0.png", "model.glb"
     asset_data: bytes, 
     content_type: str
@@ -91,6 +156,7 @@ async def upload_asset_to_storage(
     Args:
         task_id: The main task ID for namespacing.
         asset_type_plural: The type of asset (e.g., "concepts", "models"), used in the path.
+                          Can be a simple type or already processed path.
         file_name: The name of the file.
         asset_data: The asset content as bytes.
         content_type: The MIME type of the asset.
@@ -103,7 +169,7 @@ async def upload_asset_to_storage(
             - 502 if there's an error communicating with Supabase Storage during upload.
             - 500 for other unexpected errors.
     """
-    storage_path = f"{asset_type_plural}/{task_id}/{file_name}"
+    storage_path = f"{get_asset_folder_path(asset_type_plural)}/{task_id}/{file_name}"
     bucket_name = settings.generated_assets_bucket_name
 
     try:
@@ -123,11 +189,39 @@ async def upload_asset_to_storage(
         await run_in_threadpool(_upload_sync)
         
         # If no exception was raised, the upload is considered successful.
-        # Construct the public URL.
-        # Ensure no double slashes if supabase_url already has a trailing slash.
+        # Check if bucket is public to determine URL type
+        def _check_bucket_public():
+            buckets = supabase_client.storage.list_buckets()
+            for bucket in buckets:
+                if bucket.name == bucket_name:
+                    return bucket.public
+            return False  # Default to private if bucket not found
+        
+        is_bucket_public = await run_in_threadpool(_check_bucket_public)
+        
         normalized_supabase_url = settings.supabase_url.rstrip('/')
-        public_url = f"{normalized_supabase_url}/storage/v1/object/public/{bucket_name}/{storage_path}"
-        return public_url
+        
+        if is_bucket_public:
+            # Construct the public URL for public buckets
+            public_url = f"{normalized_supabase_url}/storage/v1/object/public/{bucket_name}/{storage_path}"
+            return public_url
+        else:
+            # Create a signed URL for private buckets (expires in 1 hour by default)
+            def _create_signed_url():
+                response = supabase_client.storage.from_(bucket_name).create_signed_url(
+                    path=storage_path, 
+                    expires_in=3600  # 1 hour expiration
+                )
+                if isinstance(response, dict) and 'signedURL' in response:
+                    return response['signedURL']
+                elif isinstance(response, dict) and 'signed_url' in response:
+                    return response['signed_url']
+                else:
+                    # Fallback: return the response itself if format is unexpected
+                    return response
+            
+            signed_url = await run_in_threadpool(_create_signed_url)
+            return signed_url
 
     except httpx.HTTPStatusError as e:
         # Handle HTTP errors from Supabase (e.g., 400 for bad path, 401/403 for RLS/permissions)
@@ -468,6 +562,49 @@ async def create_model_record(
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred while creating model record: {str(e)}"
+        )
+
+async def get_concept_image_record_by_id(concept_image_id: str) -> dict | None:
+    """Retrieves a concept image record from the concept_images table by its ID.
+
+    Args:
+        concept_image_id: The ID of the concept image record to retrieve.
+
+    Returns:
+        The concept image record data from Supabase, or None if not found.
+
+    Raises:
+        HTTPException: 
+            - 502 if there's an error communicating with Supabase.
+            - 500 for other unexpected errors.
+    """
+    table_name = settings.concept_images_table_name
+
+    try:
+        def _get_sync():
+            response = (
+                supabase_client.table(table_name)
+                .select("*")
+                .eq("id", concept_image_id)
+                .execute()
+            )
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+
+        record = await run_in_threadpool(_get_sync)
+        return record
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to retrieve concept image record from Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
+        )
+    except Exception as e:
+        # logger.error(f"Unexpected error retrieving concept image from Supabase: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while retrieving concept image record: {str(e)}"
         )
 
 # Functions for Supabase interactions will be added here 

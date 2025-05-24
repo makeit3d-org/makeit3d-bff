@@ -33,6 +33,7 @@ async def call_tripo_task_api(task_type: str, payload: Dict[str, Any]) -> Dict[s
     
     logger.info(f"Calling Tripo AI Task API ({task_type}): {url}")
     logger.info(f"Request payload keys: {list(payload.keys())}")
+    logger.info(f"FULL REQUEST PAYLOAD: {json.dumps(request_data, indent=2)}")
     
     try:
         async with httpx.AsyncClient() as client:
@@ -88,10 +89,10 @@ async def generate_image_to_model(
     image_filenames: List[str], 
     request_model: ImageToModelRequest
 ) -> Dict[str, Any]:
-    """Calls Tripo AI image-to-model or multiview-to-model endpoint using base64 data URIs."""
+    """Calls Tripo AI image-to-model or multiview-to-model endpoint using proper API v2 format."""
     
     payload_params = request_model.model_dump(exclude_none=True, exclude={"input_image_asset_urls"}) # Base parameters
-    logger.info("Generating image-to-model with Tripo AI using image data.")
+    logger.info("Generating image-to-model with Tripo AI using proper API v2 format.")
 
     if not image_files_data or not isinstance(image_files_data, list) or len(image_files_data) == 0:
         logger.error("No image data provided for generate_image_to_model")
@@ -100,15 +101,28 @@ async def generate_image_to_model(
     if len(image_files_data) == 1:
         logger.info("Single image provided, using image_to_model API type.")
         image_bytes = image_files_data[0]
-        # Assuming PNG or JPG based on common use cases. For more robustness, original_filenames could inform this.
-        # Defaulting to image/jpeg as a common format. Consider making this dynamic based on filename extension.
-        mime_type = "image/jpeg" 
+        
+        # Determine file type from filename
+        file_type = "jpg"  # Default
         if image_filenames and image_filenames[0].lower().endswith(".png"):
-            mime_type = "image/png"
+            file_type = "png"
         
-        data_uri = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode()}"
+        # According to Tripo API v2 docs, we need to use direct URL
+        # Since we have bytes data, we need to first get the original URL from the input_image_asset_urls
+        # The image_files_data contains the downloaded bytes, but we need the original URL for Tripo
+        original_urls = request_model.input_image_asset_urls
+        if not original_urls or len(original_urls) == 0:
+            raise ValueError("input_image_asset_urls is required for Tripo API v2")
+            
+        image_url = original_urls[0]
         
-        api_payload = {"file": data_uri}
+        # Use proper Tripo API v2 structure
+        api_payload = {
+            "file": {
+                "type": file_type,
+                "url": image_url
+            }
+        }
         api_payload.update(payload_params) # Add other params like prompt, texture, style etc.
         
         # Clean up style if empty for image_to_model
@@ -116,32 +130,36 @@ async def generate_image_to_model(
             logger.info("Empty string provided for style, removing from image_to_model payload")
             api_payload.pop('style')
             
+        logger.info(f"Using Tripo API v2 format with file.url: {image_url}")
         return await call_tripo_task_api("image_to_model", api_payload)
     else:
         logger.info(f"Multiple images ({len(image_files_data)}) provided, using multiview_to_model API type.")
         logger.info(f"Multiview image ordering ENFORCED: [front, left, back, right] - client must provide URLs in this exact order")
         
         # According to Tripo v2 API docs, multiview_to_model expects exactly 4 files in order [front, left, back, right]
-        # We need to format them as objects with file data URIs
+        original_urls = request_model.input_image_asset_urls
+        if not original_urls or len(original_urls) == 0:
+            raise ValueError("input_image_asset_urls is required for multiview Tripo API v2")
+        
         files_list = []
         view_names = ["front", "left", "back", "right"]
         
         for i in range(4):  # Always expect 4 positions for multiview
-            if i < len(image_files_data):
+            if i < len(original_urls) and i < len(image_files_data):
                 # We have an image for this position
-                img_bytes = image_files_data[i]
-                mime_type = "image/jpeg"
-                if image_filenames and i < len(image_filenames) and image_filenames[i].lower().endswith(".png"):
-                    mime_type = "image/png"
-                data_uri = f"data:{mime_type};base64,{base64.b64encode(img_bytes).decode()}"
+                image_url = original_urls[i]
                 
-                # For multiview, we try the data URI approach first
-                # If this doesn't work, we may need to implement proper file upload to get file_token
+                # Determine file type from filename
+                file_type = "jpg"  # Default
+                if image_filenames and i < len(image_filenames) and image_filenames[i].lower().endswith(".png"):
+                    file_type = "png"
+                
+                # Use proper Tripo API v2 structure for multiview
                 files_list.append({
-                    "type": "jpg" if mime_type == "image/jpeg" else "png",
-                    "url": data_uri  # Using data URI - may need file_token instead
+                    "type": file_type,
+                    "url": image_url
                 })
-                logger.info(f"✓ Added {view_names[i]} view (position {i}) from client URL #{i}")
+                logger.info(f"✓ Added {view_names[i]} view (position {i}) with URL: {image_url}")
             else:
                 # Empty position - according to docs, front cannot be omitted but others can
                 if i == 0:  # front position cannot be empty
@@ -158,7 +176,7 @@ async def generate_image_to_model(
             api_payload.pop('style')
 
         logger.info(f"Multiview payload structure: {len([f for f in files_list if f])} non-empty views out of 4 positions")
-        logger.info(f"View mapping: {[(i, view_names[i], '✓' if i < len(image_files_data) else '○') for i in range(4)]}")
+        logger.info(f"View mapping: {[(i, view_names[i], '✓' if i < len(original_urls) else '○') for i in range(4)]}")
         return await call_tripo_task_api("multiview_to_model", api_payload)
 
 async def generate_sketch_to_model(
@@ -166,22 +184,28 @@ async def generate_sketch_to_model(
     original_filename: str, # Used to infer mime_type, can be simple like "sketch.png"
     request_model: SketchToModelRequest
 ) -> Dict[str, Any]:
-    """Calls Tripo AI image-to-model endpoint using base64 data URI for a sketch."""
+    """Calls Tripo AI image-to-model endpoint using proper API v2 format for a sketch."""
     
     payload_params = request_model.model_dump(exclude_none=True, exclude={"input_sketch_asset_url"})
-    logger.info("Generating sketch-to-model with Tripo AI using image data.")
+    logger.info("Generating sketch-to-model with Tripo AI using proper API v2 format.")
 
-    # Determine MIME type (default to image/png for sketches)
-    mime_type = "image/png" 
-    if original_filename and original_filename.lower().endswith(".jpg") or original_filename.lower().endswith(".jpeg"):
-        mime_type = "image/jpeg"
+    # Determine file type from filename (default to png for sketches)
+    file_type = "png"  # Default for sketches
+    if original_filename and (original_filename.lower().endswith(".jpg") or original_filename.lower().endswith(".jpeg")):
+        file_type = "jpg"
         
-    data_uri = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode()}"
+    # Get the original URL from the request model
+    sketch_url = request_model.input_sketch_asset_url
+    if not sketch_url:
+        raise ValueError("input_sketch_asset_url is required for Tripo API v2")
     
-    # Prepare payload for "image_to_model" task type
-    # Based on fal.ai docs, if an API accepts a URL, it can also accept a data URI string directly.
-    # So, `payload["file"]` should be the data_uri string.
-    api_payload = {"file": data_uri}
+    # Use proper Tripo API v2 structure
+    api_payload = {
+        "file": {
+            "type": file_type,
+            "url": sketch_url
+        }
+    }
     api_payload.update(payload_params) # Add other params like texture, pbr etc.
 
     # Remove parameters not typically supported/used by image_to_model for sketches or if we want default behavior
@@ -196,8 +220,7 @@ async def generate_sketch_to_model(
         api_payload.pop("style")
 
     logger.info(f"Final payload keys for image_to_model (sketch): {list(api_payload.keys())}")
-    if "file" in api_payload:
-        logger.info(f"File parameter is a data URI (length: {len(api_payload['file'])})")
+    logger.info(f"Using Tripo API v2 format with file.url: {sketch_url}")
 
     return await call_tripo_task_api("image_to_model", api_payload)
 
@@ -370,13 +393,6 @@ def normalize_tripo_status(tripo_response: Dict[str, Any]) -> Dict[str, Any]:
         model_url = output
         logger.info(f"Found model URL in output string for task {task_id}: {model_url}")
     
-    # For testing purposes - for Tripo v2 API sometimes we need a hardcoded URL 
-    # REMOVE THIS IN PRODUCTION
-    if settings.tripo_test_mode and (task_status == "success" or progress == 100) and not model_url:
-        # Use a publicly accessible sample GLB file for testing
-        model_url = "https://storage.googleapis.com/materials-icons/external-assets/mocks/models/Duck.glb"
-        logger.warning(f"TEST MODE: Using hardcoded sample model URL for task {task_id}: {model_url}")
-    
     # Log extracted data fields for debugging
     logger.info(f"Tripo task {task_id} - Extracted data: status={task_status}, progress={progress}, model_url={model_url}")
     
@@ -413,12 +429,6 @@ def normalize_tripo_status(tripo_response: Dict[str, Any]) -> Dict[str, Any]:
         normalized_status = "complete"
         normalized_progress = 100
         logger.info(f"Overriding status to complete because model_url is present for task {task_id}")
-    
-    # Always consider task complete in test mode with high progress
-    if settings.tripo_test_mode and progress >= 95:
-        normalized_status = "complete"
-        normalized_progress = 100
-        logger.warning(f"TEST MODE: Considering task {task_id} complete due to test mode and progress >= 95%")
     
     # Prepare the result
     result = {

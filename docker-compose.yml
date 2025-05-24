@@ -30,6 +30,7 @@ services:
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - REDIS_URL=redis://redis:6379/0 # Redis service name as hostname
       - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
+      - TEST_ASSETS_MODE=${TEST_ASSETS_MODE:-False}
     depends_on:
       - redis
 
@@ -49,6 +50,7 @@ services:
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - REDIS_URL=redis://redis:6379/0
       - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
+      - TEST_ASSETS_MODE=${TEST_ASSETS_MODE:-False}
     depends_on:
       - redis
 
@@ -68,6 +70,7 @@ services:
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - REDIS_URL=redis://redis:6379/0
       - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
+      - TEST_ASSETS_MODE=${TEST_ASSETS_MODE:-False}
     depends_on:
       - redis
 
@@ -87,6 +90,7 @@ services:
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - REDIS_URL=redis://redis:6379/0
       - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
+      - TEST_ASSETS_MODE=${TEST_ASSETS_MODE:-False}
     depends_on:
       - redis
 
