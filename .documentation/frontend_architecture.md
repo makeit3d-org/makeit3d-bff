@@ -40,8 +40,8 @@ The app handles user authentication (e.g., Supabase Auth) and is designed for in
 *   **3D Rendering**: `react-three-fiber`, `@react-three/drei`, `expo-gl`.
 *   **State Management**: Zustand, React Context API (managing `task_id` state, data from Supabase tables).
 *   **Authentication**: Supabase Auth (via `@supabase/supabase-js` library). 
-    *   Project: MakeIt3D (`iadsbhyztbokarclnzzk`) 
-    *   Anon Key: Already configured for JWT validation
+    *   Project: MakeIt3D (configured via environment variables)
+    *   Anon Key: Configured via environment variables for JWT validation
     *   Utilizes AsyncStorage or SecureStore for session persistence
     *   JWT tokens sent to BFF via Authorization header
 *   **Data Fetching & Client-Server State**: TanStack Query (React Query) for interacting with both the BFF API and Supabase.
@@ -195,8 +195,8 @@ The app handles user authentication (e.g., Supabase Auth) and is designed for in
 *   [ ] Setup Supabase client with project config:
     ```typescript
     const supabase = createClient(
-      'https://iadsbhyztbokarclnzzk.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZHNiaHl6dGJva2FyY2xuenprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MjM4MDUsImV4cCI6MjA2MzA5OTgwNX0.HeTNAhHhCdOoadHJOUeyHEQxo9f5Ole6GxJqYCORS78'
+      process.env.EXPO_PUBLIC_SUPABASE_URL!,
+      process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!
     );
     ```
 *   [ ] Setup Supabase Auth: initialize client, configure auth providers (email/password, OAuth), manage session state

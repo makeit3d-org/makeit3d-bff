@@ -47,13 +47,16 @@ The application is designed to be run using Docker and Docker Compose.
 1.  **Environment Variables**:
     Ensure you have a `.env` file at the root of the project with the necessary API keys and configurations (refer to `docker-compose.yml` for required variables like `TRIPO_API_KEY`, `OPENAI_API_KEY`, `REDIS_URL`, etc.).
 
-    Example `.env` content:
-    ```env
-    TRIPO_API_KEY=your_tripo_api_key
-    OPENAI_API_KEY=your_openai_api_key
-    REDIS_URL=redis://redis:6379/0
-    # Add other variables as needed from docker-compose.yml
-    ```
+    **⚠️ SECURITY NOTE**: Never commit your `.env` file to version control. It contains sensitive API keys and secrets. The `.env` file is already properly excluded in `.gitignore`.
+
+    Required variables include:
+    - `TRIPO_API_KEY` - Your Tripo AI API key
+    - `OPENAI_API_KEY` - Your OpenAI API key  
+    - `SUPABASE_URL` - Your Supabase project URL
+    - `SUPABASE_SERVICE_KEY` - Your Supabase service role key
+    - `SUPABASE_ANON_KEY` - Your Supabase anonymous key
+    - `REDIS_URL` - Redis connection URL
+    - Other variables as needed from `docker-compose.yml`
 
 2.  **Build and Run with Docker Compose**:
     ```bash

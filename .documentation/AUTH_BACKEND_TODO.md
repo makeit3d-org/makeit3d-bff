@@ -49,7 +49,7 @@ CREATE POLICY "Users can manage their own models" ON public.models
   ```python
   # JWT & Auth Configuration  
   supabase_jwt_secret: str  # Get from Supabase Dashboard -> Settings -> API -> JWT Secret
-  supabase_anon_key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZHNiaHl6dGJva2FyY2xuenprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MjM4MDUsImV4cCI6MjA2MzA5OTgwNX0.HeTNAhHhCdOoadHJOUeyHEQxo9f5Ole6GxJqYCORS78"
+  supabase_anon_key: str  # Get from Supabase Dashboard -> Settings -> API -> Project API keys
   auth_required: bool = True # Toggle auth requirement (useful for testing)
   ```
 
@@ -264,9 +264,9 @@ Based on analysis of your MakeIt3D project (`iadsbhyztbokarclnzzk`):
 ### Configuration Values for `.env`
 ```bash
 # Add these to your .env file:
-SUPABASE_PROJECT_ID=iadsbhyztbokarclnzzk
-SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZHNiaHl6dGJva2FyY2xuenprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MjM4MDUsImV4cCI6MjA2MzA5OTgwNX0.HeTNAhHhCdOoadHJOUeyHEQxo9f5Ole6GxJqYCORS78
-SUPABASE_JWT_SECRET=# Get from Supabase Dashboard -> Settings -> API -> JWT Secret
+SUPABASE_PROJECT_ID=your_project_id
+SUPABASE_ANON_KEY=your_anon_key_from_dashboard
+SUPABASE_JWT_SECRET=your_jwt_secret_from_dashboard
 ```
 
 ### Your Current RLS Policies Summary

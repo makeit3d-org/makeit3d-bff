@@ -108,8 +108,8 @@ After running this script:
 3. ✅ Security policies enforce data isolation
 
 For Frontend Implementation:
-- Use anon key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZHNiaHl6dGJva2FyY2xuenprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MjM4MDUsImV4cCI6MjA2MzA5OTgwNX0.HeTNAhHhCdOoadHJOUeyHEQxo9f5Ole6GxJqYCORS78
-- Project URL: https://iadsbhyztbokarclnzzk.supabase.co
+- Use anon key: Get from Supabase Dashboard -> Settings -> API -> Project API keys
+- Project URL: Get from Supabase Dashboard -> Settings -> API
 - JWT tokens will automatically enforce user isolation via RLS
 
 For Backend Implementation:

@@ -187,9 +187,9 @@ The service is built with Python (FastAPI), containerized with Docker, and desig
     *   The `/tasks/{celery_task_id}/status` response reflects the Celery task status, or the derived status from Tripo polling, and provides the final Supabase URL for the step once the BFF completes its processing (either in Celery task or status endpoint).
 7.  **Prompt Customization:** Unchanged.
 8.  **Configuration:**
-    *   BFF needs Supabase URL (`https://iadsbhyztbokarclnzzk.supabase.co`), service key, JWT secret for token validation
+    *   BFF needs Supabase URL, service key, JWT secret for token validation (all from environment variables)
     *   Generated assets bucket name, and names of `concept_images` and `models` tables
-    *   Anon key: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZHNiaHl6dGJva2FyY2xuenprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MjM4MDUsImV4cCI6MjA2MzA5OTgwNX0.HeTNAhHhCdOoadHJOUeyHEQxo9f5Ole6GxJqYCORS78`
+    *   Anon key: Retrieved from Supabase Dashboard -> Settings -> API -> Project API keys
 
 ## Deployment
 (No significant changes from previous version, Supabase credentials become more critical.)
