@@ -3,11 +3,41 @@ from typing import List, Dict, Any
 import logging
 
 from app.config import settings
-from app.schemas.generation_schemas import ImageToImageRequest
+from app.schemas.generation_schemas import ImageToImageRequest, TextToModelRequest
 
 logger = logging.getLogger(__name__)
 
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
+
+async def generate_text_to_image(request_data: TextToModelRequest) -> Dict[str, Any]:
+    """Calls OpenAI's image generation API to generate images from text."""
+    url = f"{OPENAI_API_BASE_URL}/images/generations"
+    headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "prompt": f"{request_data.prompt} Style: {request_data.style}" if request_data.style else request_data.prompt,
+        "model": "dall-e-3",
+        "n": request_data.n,
+        "size": request_data.size or "1024x1024",
+        "quality": request_data.quality or "standard",
+        "response_format": "b64_json"  # Always use b64_json for consistent handling
+    }
+
+    logger.info(f"Calling OpenAI Image Generation API: {url}")
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(url, headers=headers, json=data)
+            response.raise_for_status()
+            logger.info(f"OpenAI Image Generation API response status: {response.status_code}")
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        logger.error(f"OpenAI HTTP error: {e.response.status_code} - {e.response.text}", exc_info=True)
+        raise
+    except Exception as e:
+        logger.error(f"Error calling OpenAI Image Generation API: {e}", exc_info=True)
+        raise
 
 async def generate_image_to_image(image_file: bytes, filename: str, request_data: ImageToImageRequest) -> Dict[str, Any]:
     """Calls OpenAI's image edit API to generate concepts."""

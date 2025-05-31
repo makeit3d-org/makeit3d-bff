@@ -8,120 +8,120 @@ This document describes the refactored architecture for the Backend-for-Frontend
 1.  **Client-Managed `task_id`**: The client generates a unique `task_id` for each overall generation job/workspace item.
 2.  **Supabase for Inputs**: The client uploads input assets (images, sketches) to its Supabase Storage and provides the Supabase URL of the asset to the BFF.
 3.  **BFF Fetches Inputs**: The BFF fetches these input assets from the provided Supabase URLs.
-4.  **BFF Manages Outputs to Supabase**: The BFF takes outputs from AI services (downloading from temporary AI URLs if necessary), uploads them to a configurable client Supabase Storage bucket (using a path structure like `{asset_type_plural}/{task_id}/{filename}`), and then creates/updates metadata records (including `status` and the final `asset_url`) in dedicated Supabase tables (`concept_images`, `models`).
-5.  **Polling & Status**: The client polls `GET /tasks/{task_id}/status?service={service}` for real-time AI step status. The BFF provides the AI service's status and, upon completion of an AI step and BFF processing, the Supabase URL of the generated asset. The client also relies on querying the dedicated Supabase tables (`input_assets`, `concept_images`, `models`) for persisted state and asset locations.
+4.  **BFF Manages Outputs to Supabase**: The BFF takes outputs from AI services (downloading from temporary AI URLs if necessary), uploads them to a configurable client Supabase Storage bucket (using a path structure like `{asset_type_plural}/{task_id}/{filename}`), and then creates/updates metadata records (including `status` and the final `asset_url`) in dedicated Supabase tables (`images`, `models`).
+5.  **User Authentication & Credits**: All requests require valid Supabase Auth JWT tokens. The BFF validates user sessions and manages credit deduction before AI operations using the integrated credit system (`user_credits`, `credit_transactions`, `operation_costs` tables).
+6.  **Polling & Status**: The client polls `GET /tasks/{task_id}/status?service={service}` for real-time AI step status. The BFF provides the AI service's status and, upon completion of an AI step and BFF processing, the Supabase URL of the generated asset. The client also relies on querying the dedicated Supabase tables (`images`, `models`) for persisted state and asset locations.
 
 The service is built with Python (FastAPI), containerized with Docker, and designed for deployment on platforms like Railway.
 
-## API Endpoints (Refactored)
+## API Endpoints (Multi-Provider Refactored)
 
 (Refer to `.documentation/makeit3d-api.md` for detailed OpenAPI v1.1.0 specification of request/response schemas.)
 
+### API Provider Mapping
+
+| BFF Endpoint | Supported Providers | External API Endpoints |
+|--------------|-------------------|----------------------|
+| `/image-to-image` | OpenAI, Stability, Recraft | OpenAI: Image Edit/Generate<br/>Stability: Structure Control<br/>Recraft: Image-to-Image |
+| `/text-to-image` | OpenAI, Stability, Recraft | OpenAI: Image Generation<br/>Stability: Image Core<br/>Recraft: Text-to-Image |
+| `/text-to-model` | Tripo | Tripo: Text-to-Model |
+| `/image-to-model` | Tripo, Stability | Tripo: Image to 3D, Stability: Image to 3D |
+| `/sketch-to-image` | Stability | Stability: Sketch Control |
+| `/refine-model` | Tripo | Tripo: Refine Model |
+| `/remove-background` | Stability, Recraft | Stability: Remove Background, Recraft: Remove Background |
+| `/search-and-recolor` | Stability | Stability: Search and Recolor |
+| `/tasks/{id}/status` | Tripo, OpenAI | Tripo: Task Status<br/>OpenAI: Direct Response |
+| `/image-inpaint` | Recraft | Recraft: Image Inpainting with Mask |
+
 ### `POST /generate/image-to-image`
 
-- **Summary (Refactored):** Generates 2D concepts using OpenAI from a user-provided image URL (Supabase).
-- **Request (Refactored):**
+- **Summary:** Generates 2D images from input image using specified AI provider.
+- **Supported Providers:** `openai`, `stability`, `recraft`
+- **Request:**
     - **Content-Type:** `application/json`
-    - **Body:** Includes client-generated `task_id`, `prompt`, and `input_image_asset_url` (Supabase URL).
-- **Process (Refactored):**
-    1.  Receives `task_id`, `prompt`, `input_image_asset_url` (Supabase URL of the input image), and other parameters from the frontend.
-    2.  BFF fetches the input image from the provided `input_image_asset_url` using its Supabase Handler.
-    3.  Customizes the prompt for OpenAI based on the input style (if any).
-    4.  BFF creates an initial record in the `concept_images` Supabase table for this `task_id` with status 'pending'.
-    5.  Dispatches a Celery task (e.g., `generate_openai_image_task`) with necessary data (including the DB record ID).
-    6.  BFF updates the `concept_images` record with the `celery_task_id` (as `ai_service_task_id`) and status 'processing'.
-    7.  Returns a `TaskIdResponse` containing the `celery_task_id` to the frontend.
-    8.  The Celery task, upon receiving results from OpenAI (e.g., base64 encoded images):
-        *   Decodes and uploads each generated concept image to Supabase Storage (e.g., `[GENERATED_ASSETS_BUCKET_NAME]/concepts/{task_id}/{index}.png`).
-        *   Updates the corresponding record(s) in the `concept_images` table with the new Supabase `asset_url`(s) and sets status to 'complete'.
-    9.  Frontend polls `GET /tasks/{celery_task_id}/status?service=openai` using the received `celery_task_id` for OpenAI's direct processing status and final asset URLs.
+    - **Body:** Includes `task_id`, `provider`, `input_image_asset_url`, `prompt`, and provider-specific parameters.
+- **Provider-Specific Parameters:**
+    - **OpenAI:** `style`, `n`, `background`
+    - **Stability:** `style_preset`, `fidelity`, `negative_prompt`, `output_format`, `seed`
+    - **Recraft:** `style`, `substyle`, `strength`, `negative_prompt`, `n`, `model`, `response_format`
+
+### `POST /generate/text-to-image`
+
+- **Summary:** Generates 2D images from text using specified AI provider.
+- **Supported Providers:** `openai`, `stability`, `recraft`
+- **Request:**
+    - **Content-Type:** `application/json`
+    - **Body:** Includes `task_id`, `provider`, `prompt`, and provider-specific parameters.
+- **Provider-Specific Parameters:**
+    - **OpenAI:** `style`, `n`, `size`, `quality`
+    - **Stability:** `style_preset`, `aspect_ratio`, `negative_prompt`, `output_format`, `seed`
+    - **Recraft:** `style`, `substyle`, `n`, `model`, `response_format`, `size`
 
 ### `POST /generate/text-to-model`
 
-- **Summary (Refactored):** Initiates 3D model generation from text using Tripo AI.
-- **Request (Refactored):**
+- **Summary:** Generates 3D models from text using Tripo AI.
+- **Supported Providers:** `tripo` (only)
+- **Request:**
     - **Content-Type:** `application/json`
-    - **Body:** Includes client-generated `task_id`, `prompt`, and other Tripo AI parameters.
-- **Process (Refactored):**
-    1.  Receives `task_id`, `prompt`, and other parameters from the frontend.
-    2.  BFF creates an initial record in the `models` Supabase table for this `task_id` with status 'pending', linking to the `user_id`.
-    3.  Dispatches a Celery task (e.g., `generate_tripo_text_to_model_task`) with necessary data (including the DB record ID).
-    4.  BFF updates the `models` record with the `celery_task_id` (as `ai_service_task_id`) and status 'processing'.
-    5.  Returns a `TaskIdResponse` containing the `celery_task_id` to the frontend.
-    6.  The Celery task calls Tripo AI's text-to-model endpoint and receives a Tripo AI task ID. It updates the `models` record with this `ai_provider_task_id` and status remains 'processing'.
-    7.  Frontend polls `GET /tasks/{celery_task_id}/status?service=tripoai` using the received `celery_task_id`.
-    8.  The `/tasks/{celery_task_id}/status` endpoint, when polled:
-        *   Retrieves the Tripo AI task ID from the Celery task result (or the `models` table).
-        *   Polls Tripo AI's status endpoint.
-        *   When Tripo AI task completes:
-            *   BFF (within the status endpoint logic) downloads the model from Tripo AI's temporary URL.
-            *   BFF uploads the model to Supabase Storage (e.g., `[GENERATED_ASSETS_BUCKET_NAME]/models/{task_id}/model.glb`).
-            *   BFF updates the corresponding record in the `models` table with the new Supabase `asset_url` and sets status to 'complete'.
+    - **Body:** Includes `task_id`, `provider`, `prompt`, and Tripo-specific parameters.
+- **Provider-Specific Parameters:**
+    - **Tripo:** `style`, `texture`, `pbr`, `model_version`, `face_limit`, `auto_size`, `texture_quality`
 
 ### `POST /generate/image-to-model`
 
-- **Summary (Refactored):** Initiates 3D model generation from image URL(s) (Supabase) using Tripo AI.
-- **Request (Refactored):**
+- **Summary:** Generates 3D models from image(s) using specified AI provider.
+- **Supported Providers:** `tripo`, `stability`
+- **Request:**
     - **Content-Type:** `application/json`
-    - **Body:** Includes `task_id`, `input_image_asset_urls` (array of Supabase URLs), and other Tripo AI parameters.
-- **Process (Refactored):**
-    1.  Receives `task_id`, `input_image_asset_urls`, etc.
-    2.  BFF fetches image(s) from the provided Supabase URL(s).
-    3.  **Automatic Mode Selection:**
-        - **Single Image (1 URL):** Uses Tripo's `image_to_model` API for single-view generation
-        - **Multiview (2-4 URLs):** Uses Tripo's `multiview_to_model` API for enhanced quality
-    4.  **Multiview Ordering:** For multiview mode, images must be provided in exact order: `[front, left, back, right]`
-        - Front view (position 0) is REQUIRED and cannot be omitted
-        - Other views are optional but must maintain positional order
-        - Examples: `[front]`, `[front, left]`, `[front, left, back]`, `[front, left, back, right]`
-    5.  BFF creates an initial record in the `models` table for this `task_id` with status 'pending'.
-    6.  Dispatches a Celery task (e.g., `generate_tripo_image_to_model_task`) with fetched image data and DB record ID.
-    7.  BFF updates the `models` record with the `celery_task_id` (as `ai_service_task_id`) and status 'processing'.
-    8.  Returns a `TaskIdResponse` containing the `celery_task_id` to the frontend.
-    9.  The Celery task calls Tripo AI's image-to-model or multiview-to-model endpoint based on image count.
-    10. Handles polling (via `GET /tasks/{celery_task_id}/status?service=tripoai`), final asset download from Tripo, upload to Supabase Storage, and `models` table update as in `text-to-model`.
+    - **Body:** Includes `task_id`, `provider`, `input_image_asset_urls`, and provider-specific parameters.
+- **Provider-Specific Parameters:**
+    - **Tripo:** `prompt`, `style`, `texture`, `pbr`, `model_version`, `face_limit`, `auto_size`, `texture_quality`, `orientation`
+    - **Stability:** `texture_resolution`, `remesh`, `foreground_ratio`, `target_type`, `target_count`, `guidance_scale`, `seed`
 
-### `POST /generate/sketch-to-model`
+### `POST /generate/sketch-to-image`
 
-- **Summary (Refactored):** Initiates 3D model generation from a sketch image URL (Supabase) using Tripo AI.
-- **Request (Refactored):**
+- **Summary:** Generates 2D images from sketch using Stability AI.
+- **Supported Providers:** `stability` (only)
+- **Request:**
     - **Content-Type:** `application/json`
-    - **Body:** Includes `task_id`, `input_sketch_asset_url` (Supabase URL), etc.
-- **Process (Refactored):** Similar to `image-to-model`, but with a single sketch input URL.
-    1. Fetch sketch from Supabase.
-    2. Create initial record in `models` table with status 'pending'.
-    3. Dispatch Celery task (`generate_tripo_sketch_to_model_task`).
-    4. Update `models` record with `celery_task_id` and status 'processing'.
-    5. Return `celery_task_id` to client.
-    6. Celery task calls Tripo AI.
-    7. Poll (via `GET /tasks/{celery_task_id}/status?service=tripoai`), download from Tripo, upload to Supabase Storage, update `models` table.
+    - **Body:** Includes `task_id`, `input_sketch_asset_url`, `prompt`, and Stability-specific parameters.
+- **Parameters:** `control_strength`, `style_preset`, `negative_prompt`, `output_format`, `seed`
 
 ### `POST /generate/refine-model`
 
-- **Summary (Refactored):** Initiates refinement of an existing 3D model using Tripo AI.
-- **Request (Refactored):**
+- **Summary:** Refines existing 3D model using Tripo AI.
+- **Supported Providers:** `tripo` (only)
+- **Request:**
     - **Content-Type:** `application/json`
-    - **Body:** Includes client's main workspace `task_id`, `input_model_asset_url` (Supabase URL of the model to refine), and `draft_model_task_id` (optional, Tripo's ID for a model previously generated by Tripo).
-- **Process (Refactored):**
-    1.  Receives `task_id`, `input_model_asset_url`, and other parameters.
-    2.  BFF fetches the input model from `input_model_asset_url`.
-    3.  BFF creates a new record in the `models` table for the refined model output with status 'pending'.
-    4.  Dispatches a Celery task (e.g., `generate_tripo_refine_model_task`) with fetched model data and new DB record ID.
-    5.  BFF updates the new `models` record with the `celery_task_id` (as `ai_service_task_id`) and status 'processing'.
-    6.  Returns a `TaskIdResponse` containing the `celery_task_id` to the frontend.
-    7.  The Celery task calls Tripo AI's refine endpoint.
-    8.  Handles polling (via `GET /tasks/{celery_task_id}/status?service=tripoai`), final asset download from Tripo, upload to Supabase Storage, and `models` table update for the *new record* as in `text-to-model`.
+    - **Body:** Includes `task_id`, `input_model_asset_url`, `prompt`, and Tripo-specific parameters.
+- **Parameters:** `draft_model_task_id`, `texture`, `pbr`, `model_version`, `face_limit`, `auto_size`, `texture_quality`
+
+### `POST /generate/remove-background`
+
+- **Summary:** Removes background from image using specified AI provider.
+- **Supported Providers:** `stability`, `recraft`
+- **Request:**
+    - **Content-Type:** `application/json`
+    - **Body:** Includes `task_id`, `provider`, `input_image_asset_url`, and provider-specific parameters.
+- **Provider-Specific Parameters:**
+    - **Stability:** `output_format`
+    - **Recraft:** `response_format`
+
+### `POST /generate/search-and-recolor`
+
+- **Summary:** Automatically segments and recolors specific objects in an image using Stability AI.
+- **Supported Providers:** `stability` (only)
+- **Request:**
+    - **Content-Type:** `application/json`
+    - **Body:** Includes `task_id`, `input_image_asset_url`, `prompt`, `select_prompt`, and Stability-specific parameters.
+- **Parameters:** `select_prompt`, `negative_prompt`, `grow_mask`, `seed`, `output_format`, `style_preset`
 
 ### `GET /tasks/{celery_task_id}/status?service={service}`
 
-- **Summary (Refactored):** Retrieves real-time status of a specific AI generation Celery task.
-- **Request:** Path param `celery_task_id` (the Celery task ID), query param `service` (`openai` or `tripoai`).
-- **Response (Refactored):**
-    - **Body:** Normalized structure: `{ "task_id": "celery_task_id", "status": "pending|processing|complete|failed", "asset_url": string (Supabase URL if complete), "error": string (if failed) }`. (Matches `TaskStatusResponse` in OpenAPI)
-- **Process (Refactored):**
-    1.  Based on `service`, calls the appropriate AI service's status endpoint.
-    2.  Normalizes the response.
-    3.  If AI service step is complete, the BFF should have already processed the output (uploaded to Supabase Storage, updated respective metadata table). This endpoint returns the Supabase URL(s) for the asset(s) produced in *this specific step*.
+- **Summary:** Retrieves real-time status of a specific AI generation Celery task.
+- **Supported Services:** `openai`, `tripoai`, `stability`, `recraft`
+- **Request:** Path param `celery_task_id`, query param `service`.
+- **Response:** Normalized structure with `task_id`, `status`, `asset_url`, `error`, `progress`.
 
 ## Technology Stack
 
@@ -132,8 +132,61 @@ The service is built with Python (FastAPI), containerized with Docker, and desig
 | httpx               | Asynchronous HTTP client for external APIs                      |
 | Pydantic            | Data validation and settings management                         |
 | **Supabase Python Client** | For interacting with Supabase Storage and Database             |
+| **Celery**          | Asynchronous task queue for AI generation jobs                  |
+| **Redis**           | Message broker for Celery and caching                          |
 | Docker              | Containerization for deployment                                 |
 | Railway             | Cloud deployment platform (or similar)                           |
+
+## Credit System & User Management
+
+### Authentication Requirements
+- **JWT Validation**: All generation endpoints require valid Supabase Auth JWT tokens
+- **User Context**: User ID extracted from JWT token for credit management and asset ownership
+- **Session Management**: Token validation ensures secure user-scoped operations
+
+### Credit Workflow
+1. **Pre-Operation Check**: Before any AI generation, BFF checks user's available credits
+2. **Cost Lookup**: Operation cost retrieved from `operation_costs` table using obfuscated operation keys
+3. **Credit Deduction**: If sufficient credits available, amount is deducted atomically 
+4. **Transaction Logging**: All credit movements logged in `credit_transactions` for audit trail
+5. **AI Processing**: Only proceeds if credits successfully deducted
+6. **Error Handling**: Credits refunded if AI operation fails
+
+### Credit System Tables
+- **`user_credits`**: Current balance, subscription tier, lifetime stats
+- **`credit_transactions`**: Complete audit trail of all credit movements
+- **`operation_costs`**: Configurable pricing with obfuscated provider names (provider_a, provider_b)
+
+### Operation Keys (Obfuscated)
+For security, operation keys in database use generic names:
+- `text_to_image_core` (instead of `text_to_image_stability_core`)
+- `image_to_3d` (instead of `image_to_3d_stability`)
+- `text_to_image_v3` (instead of `text_to_image_recraft_v3`)
+
+*Real provider mapping maintained in separate confidential documentation*
+
+## Security & Provider Obfuscation
+
+### Competitive Protection Strategy
+To protect competitive advantage from external consultants and contractors:
+
+1. **Database Obfuscation**: All provider references in database use generic names
+   - `provider_a` = Stability AI  
+   - `provider_b` = Recraft
+   - Tripo operations completely removed from consultant-visible database
+
+2. **Operation Key Sanitization**: All operation keys use generic names
+   - Removes provider identifiers from all database-visible keys
+   - Maintains functionality while hiding implementation details
+
+3. **Documentation Separation**: 
+   - Public documentation shows generic providers
+   - Confidential documentation contains complete restoration instructions
+   - Step-by-step SQL commands for reverting obfuscation when needed
+
+4. **Code Protection**: AI client modules remain in BFF codebase (not accessible to frontend consultant)
+
+This strategy ensures external frontend developers cannot identify actual AI providers or discover proprietary 3D generation capabilities while maintaining full system functionality.
 
 ## Rate Limiting
 
@@ -149,9 +202,9 @@ The service is built with Python (FastAPI), containerized with Docker, and desig
 3.  **Supabase Interaction (New Module: `app/supabase_handler.py`):**
     *   **Storage:**
         *   Fetches input assets from client-provided Supabase URLs.
-        *   Uploads generated assets (concepts, models) to a configurable Supabase Storage bucket using the path structure: `[BUCKET_NAME]/{asset_type_plural}/{task_id}/{filename}` (e.g., `generated_assets_bucket/concepts/task_abc123/0.png`).
+        *   Uploads generated assets (concepts, models) to a configurable Supabase Storage bucket using the path structure: `[BUCKET_NAME]/{asset_type_plural}/{task_id}/{filename}` (e.g., `generated_assets_bucket/images/task_abc123/0.png`).
     *   **Database:**
-        *   Creates and updates records in the `concept_images` and `models` Supabase tables.
+        *   Creates and updates records in the `images` and `models` Supabase tables.
         *   Manages the `status` field in these tables using simplified values: 'pending', 'processing', 'complete', 'failed'.
         *   Stores the final Supabase Storage `asset_url` in these tables.
 4.  **Asynchronous Operations:** All routes involving external AI calls and Supabase I/O will be `async`.
@@ -162,7 +215,7 @@ The service is built with Python (FastAPI), containerized with Docker, and desig
     *   Client initiates with `task_id` and input Supabase URL(s).
     *   BFF generation endpoint:
         1. Fetches input assets.
-        2. Creates initial record in `concept_images` or `models` table (status 'pending').
+        2. Creates initial record in `images` or `models` table (status 'pending').
         3. Dispatches Celery task.
         4. Updates DB record with `celery_task_id` and status 'processing'.
         5. Returns `celery_task_id` to client.
@@ -172,7 +225,7 @@ The service is built with Python (FastAPI), containerized with Docker, and desig
         2.  Calls OpenAI.
         3.  Downloads/processes images.
         4.  Uploads images to Supabase Storage (via `supabase_handler`).
-        5.  Updates its DB record in `concept_images` with final `asset_url`(s) and status 'complete' or 'failed'.
+        5.  Updates its DB record in `images` with final `asset_url`(s) and status 'complete' or 'failed'.
     *   **TripoAI Flow (combination of Celery task and Status Endpoint logic):**
         1.  Celery task keeps DB record status as 'processing'.
         2.  Calls Tripo AI to initiate job, gets `ai_provider_task_id` (Tripo's internal ID).
@@ -188,7 +241,7 @@ The service is built with Python (FastAPI), containerized with Docker, and desig
 7.  **Prompt Customization:** Unchanged.
 8.  **Configuration:**
     *   BFF needs Supabase URL, service key, JWT secret for token validation (all from environment variables)
-    *   Generated assets bucket name, and names of `concept_images` and `models` tables
+    *   Generated assets bucket name, and names of `images` and `models` tables
     *   Anon key: Retrieved from Supabase Dashboard -> Settings -> API -> Project API keys
 
 ## Deployment
@@ -213,15 +266,20 @@ The service is built with Python (FastAPI), containerized with Docker, and desig
 |   |   |-- __init__.py
 |   |   |-- generation.py
 |   |   |-- task_status.py     # For /tasks/{celery_task_id}/status endpoint
+|   |   |-- credits.py         # NEW: Credit management endpoints
 |   |-- /schemas
 |   |   |-- __init__.py
 |   |   |-- generation_schemas.py
+|   |   |-- credit_schemas.py   # NEW: Credit system schemas
 |   |-- config.py              # App settings, API keys, Supabase config
 |   |-- /ai_clients
 |   |   |-- __init__.py
 |   |   |-- tripo_client.py
 |   |   |-- openai_client.py
-|   |-- supabase_handler.py    # NEW: Module for all Supabase interactions (Storage & DB)
+|   |   |-- stability_client.py # AI client modules
+|   |   |-- recraft_client.py
+|   |-- supabase_handler.py    # Supabase interactions (Storage, DB, Credits)
+|   |-- auth.py                # NEW: JWT validation and user context
 |   |-- sync_state.py          # For sync_mode (if kept)
 |   |-- limiter.py             # Rate limiter setup
 |   |-- /tasks                 # Celery tasks
@@ -238,19 +296,80 @@ The service is built with Python (FastAPI), containerized with Docker, and desig
 
 ---
 
-### External API Mapping (Conceptual - for BFF to AI Service calls)
+### External API Mapping (Multi-Provider)
 
-(Remains conceptually similar, but BFF now fetches inputs before calling these, and handles outputs by storing to Supabase, not just passing URLs.)
+| BFF Endpoint | Provider | External API Endpoint | BFF Output Handling |
+|--------------|----------|----------------------|-------------------|
+| **Image-to-Image** | OpenAI | Image Edit/Generate | Upload to `images` table |
+| | Stability | Structure Control (`/v2beta/stable-image/control/style`) | Upload to `images` table |
+| | Recraft | Image-to-Image (`/v1/images/imageToImage`) | Upload to `images` table |
+| **Text-to-Image** | OpenAI | Image Generation | Upload to `images` table |
+| | Stability | Image Core (`/v2beta/stable-image/generate/core`) | Upload to `images` table |
+| | Recraft | Text-to-Image (`/v1/images/textToImage`) | Upload to `images` table |
+| **Text-to-Model** | Tripo | Text-to-Model | Upload to `models` table |
+| **Image-to-Model** | Tripo | Image to 3D | Upload to `models` table |
+| | Stability | Image to 3D | Upload to `models` table |
+| **Sketch-to-Image** | Stability | Sketch Control (`/v2beta/stable-image/control/sketch`) | Upload to `images` table |
+| **Refine-Model** | Tripo | Refine Model | Upload to `models` table |
+| **Remove-Background** | Stability | Remove Background (`/v2beta/stable-image/edit/remove-background`) | Upload to `images` table |
+| | Recraft | Remove Background (`/v1/images/removeBackground`) | Upload to `images` table |
+| **Search-and-Recolor** | Stability | Search and Recolor (`/v2beta/stable-image/edit/search-and-recolor`) | Upload to `images` table |
+| **Image-Inpaint** | Recraft | Image Inpainting with Mask | Upload to `images` table |
 
-| BFF Endpoint Call Type | External Service | External API Call by BFF                     | BFF Output Handling                                       |
-| :--------------------- | :--------------- | :------------------------------------------- | :-------------------------------------------------------- |
-| Image-to-Image         | OpenAI           | Image Edit/Generate with fetched image data  | Upload concepts to Supabase Storage; record in `concept_images`. |
-| Text-to-Model          | Tripo AI         | Text to Model endpoint                       | Upload model to Supabase Storage; record in `models`.      |
-| Image-to-Model         | Tripo AI         | Image to Model with fetched image data(s)    | Upload model to Supabase Storage; record in `models`.      |
-| Sketch-to-Model        | Tripo AI         | Image to Model with fetched sketch data      | Upload model to Supabase Storage; record in `models`.      |
-| Refine-Model           | Tripo AI         | Refine Model endpoint                        | Upload refined model to Supabase Storage; record in `models`. |
-
-(Polling status is separate via `GET /tasks/{task_id}/status` which calls respective AI service status endpoints.)
+**Status Polling:** `GET /tasks/{task_id}/status?service={provider}` calls respective AI service status endpoints for async operations (Tripo) or returns direct results for sync operations (OpenAI, Stability, Recraft).
 
 ## Implementation Tasks
 (Refer to `.documentation/API_REFACTOR.md` for the comprehensive checklist which details these changes.)
+
+## MVP Implementation Checklist
+
+### 🔐 Authentication
+- [ ] **JWT Middleware**: Implement JWT validation middleware for all generation endpoints
+- [ ] **User Context**: Extract user_id from JWT tokens for database operations
+- [ ] **Supabase Auth Integration**: Configure Supabase client with service key for backend operations
+- [ ] **Error Handling**: Return proper 401/403 responses for invalid/missing tokens
+- [ ] **User Initialization**: Auto-create user_credits record on first authenticated request
+
+### 💳 Credit System
+- [ ] **Credit Checking**: Implement pre-operation credit validation in all generation endpoints
+- [ ] **Atomic Deduction**: Use database transactions for credit deduction + operation logging
+- [ ] **Cost Configuration**: Ensure operation_costs table populated with current obfuscated pricing
+- [ ] **Transaction Logging**: Log all credit movements with operation context in credit_transactions
+- [ ] **Error Recovery**: Implement credit refund on AI operation failures
+- [ ] **Credit Endpoints**: Add `/api/credits/balance` and `/api/credits/history` endpoints
+- [ ] **Insufficient Credit Handling**: Return specific error codes when credits insufficient
+
+### 🧪 Testing
+- [ ] **Credit Integration Tests**: Add credit deduction verification to existing AI endpoint tests
+- [ ] **Authentication Tests**: Test all endpoints with valid/invalid JWT tokens
+- [ ] **Database Verification**: Add checks that images/models records created correctly
+- [ ] **User Isolation**: Verify users can only access their own assets
+- [ ] **Transaction Audit**: Test that all credit movements properly logged
+- [ ] **Error Scenarios**: Test credit refunds on AI failures
+- [ ] **Load Testing**: Verify credit system performance under concurrent requests
+
+### 🚀 Railway Deployment
+- [ ] **Environment Variables**: Configure all Supabase and AI provider credentials
+- [ ] **Database Connection**: Ensure Railway can connect to Supabase database
+- [ ] **Redis Setup**: Configure Redis service for Celery task queue
+- [ ] **Celery Workers**: Deploy Celery worker containers alongside web service
+- [ ] **Health Checks**: Add `/health` endpoint for Railway monitoring
+- [ ] **Logging Configuration**: Set up structured logging for production debugging
+- [ ] **Resource Limits**: Configure appropriate memory/CPU limits for containers
+- [ ] **SSL/HTTPS**: Ensure secure connections for all external API calls
+- [ ] **Monitoring**: Set up error tracking and performance monitoring
+- [ ] **Backup Strategy**: Verify Supabase automated backups enabled
+
+### 📋 Pre-Launch Verification
+- [ ] **End-to-End Flow**: Test complete user journey (auth → credit check → AI generation → asset creation)
+- [ ] **Rate Limiting**: Verify rate limits prevent abuse while allowing normal usage
+- [ ] **Security Audit**: Confirm no sensitive provider information exposed in API responses
+- [ ] **Performance Baseline**: Establish response time benchmarks for all endpoints
+- [ ] **Error Monitoring**: Ensure all errors properly logged and traceable
+
+### 🎯 Success Criteria
+- ✅ All generation endpoints require valid authentication
+- ✅ Credits properly deducted before AI operations
+- ✅ Complete audit trail of all user operations
+- ✅ Secure deployment with proper monitoring
+- ✅ Frontend can integrate seamlessly with obfuscated provider system

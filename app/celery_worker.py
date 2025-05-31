@@ -37,12 +37,15 @@ celery_app.conf.task_default_routing_key = 'task.default'
 # Ensure task names in generation_tasks.py are precise for routing if using this method extensively.
 # For MVP, we'll rely on explicit queue naming in apply_async or ensure task names are very distinct.
 celery_app.conf.task_routes = {
-    'app.tasks.generation_tasks.generate_tripo_refine_model_task': {'queue': 'tripo_refine_queue'},
+    'app.tasks.generation_tasks.generate_openai_image_task': {'queue': 'openai_queue'},
+    'app.tasks.generation_tasks.generate_tripo_text_to_model_task': {'queue': 'tripo_text_queue'},
+    'app.tasks.generation_tasks.generate_tripo_image_to_model_task': {'queue': 'tripo_image_queue'},
+    'app.tasks.generation_tasks.generate_tripo_refine_model_task': {'queue': 'tripo_other_queue'},
+    'app.tasks.generation_tasks.generate_stability_image_task': {'queue': 'stability_queue'},
+    'app.tasks.generation_tasks.generate_stability_model_task': {'queue': 'stability_queue'},
+    'app.tasks.generation_tasks.generate_recraft_image_task': {'queue': 'recraft_queue'},
     # Route other Tripo tasks to tripo_other_queue
     # A more generic router could be based on task name containing 'tripo' but not 'refine'
-    'app.tasks.generation_tasks.generate_tripo_text_to_model_task': {'queue': 'tripo_other_queue'},
-    'app.tasks.generation_tasks.generate_tripo_image_to_model_task': {'queue': 'tripo_other_queue'},
-    'app.tasks.generation_tasks.generate_tripo_sketch_to_model_task': {'queue': 'tripo_other_queue'},
     'app.tasks.generation_tasks.generate_tripo_select_concept_task': {'queue': 'tripo_other_queue'},
     # OpenAI and other tasks will go to the 'default' queue by default
 }

@@ -246,6 +246,7 @@ async def update_concept_image_record(
     prompt: str | None = None, 
     style: str | None = None, 
     source_input_asset_id: str | None = None, 
+    is_public: bool | None = None, # Privacy setting update
     metadata: dict | None = None
 ) -> dict:
     """Updates a record in the concept_images table.
@@ -259,6 +260,7 @@ async def update_concept_image_record(
         prompt: The prompt used for generation.
         style: The style used for generation.
         source_input_asset_id: The ID of the input_asset record used as source.
+        is_public: Optional privacy setting update.
         metadata: Optional additional metadata.
 
     Returns:
@@ -287,6 +289,8 @@ async def update_concept_image_record(
         update_data["source_input_asset_id"] = source_input_asset_id
     if metadata is not None:
         update_data["metadata"] = metadata
+    if is_public is not None:
+        update_data["is_public"] = is_public
 
     try:
         def _update_sync():
@@ -327,6 +331,7 @@ async def update_model_record(
     ai_service_task_id: str | None = None, 
     prompt: str | None = None, 
     style: str | None = None, 
+    is_public: bool | None = None, # Privacy setting update
     metadata: dict | None = None
 ) -> dict:
     """Updates a record in the models table.
@@ -341,6 +346,7 @@ async def update_model_record(
         ai_service_task_id: Optional ID from the AI service (e.g., Tripo task ID).
         prompt: The prompt used for generation.
         style: The style used for generation.
+        is_public: Optional privacy setting update.
         metadata: Optional additional metadata.
 
     Returns:
@@ -371,6 +377,8 @@ async def update_model_record(
         update_data["style"] = style
     if metadata is not None:
         update_data["metadata"] = metadata
+    if is_public is not None:
+        update_data["is_public"] = is_public
 
     try:
         def _update_sync():
@@ -409,6 +417,7 @@ async def create_concept_image_record(
     ai_service_task_id: str | None = None,
     source_input_asset_id: str | None = None,
     asset_url: str = "pending", # Placeholder value since this field is required in DB
+    is_public: bool = False, # Privacy setting - defaults to private
     metadata: dict | None = None
 ) -> dict:
     """Creates a new record in the concept_images table.
@@ -422,6 +431,7 @@ async def create_concept_image_record(
         ai_service_task_id: Optional ID from the AI service.
         source_input_asset_id: Optional ID of the input_asset record used as source.
         asset_url: Asset URL (defaults to "pending" placeholder since DB requires NOT NULL).
+        is_public: Privacy setting - defaults to private.
         metadata: Optional additional metadata.
 
     Returns:
@@ -438,6 +448,7 @@ async def create_concept_image_record(
         "prompt": prompt,
         "status": status,
         "asset_url": asset_url,  # Always include asset_url since it's required
+        "is_public": is_public,  # Privacy setting
     }
     if user_id is not None:
         insert_data["user_id"] = user_id
@@ -492,6 +503,7 @@ async def create_model_record(
     source_input_asset_id: str | None = None, # If generating model directly from an input asset
     source_concept_image_id: str | None = None, # If generating model from a concept image
     asset_url: str = "pending", # Placeholder value since this field is required in DB
+    is_public: bool = False, # Privacy setting - defaults to private
     metadata: dict | None = None
 ) -> dict:
     """Creates a new record in the models table.
@@ -506,6 +518,7 @@ async def create_model_record(
         source_input_asset_id: Optional ID of the input_asset used directly.
         source_concept_image_id: Optional ID of the concept_image record used as source.
         asset_url: Asset URL (defaults to "pending" placeholder since DB requires NOT NULL).
+        is_public: Privacy setting - defaults to private.
         metadata: Optional additional metadata.
 
     Returns:
@@ -522,6 +535,7 @@ async def create_model_record(
         "prompt": prompt,
         "status": status,
         "asset_url": asset_url,  # Always include asset_url since it's required
+        "is_public": is_public,  # Privacy setting
     }
     if user_id is not None:
         insert_data["user_id"] = user_id
@@ -608,3 +622,324 @@ async def get_concept_image_record_by_id(concept_image_id: str) -> dict | None:
         )
 
 # Functions for Supabase interactions will be added here 
+
+# ========================
+# CREDIT SYSTEM FUNCTIONS
+# ========================
+
+async def get_user_credits(user_id: str) -> dict | None:
+    """Retrieves user credit information.
+    
+    Args:
+        user_id: The user's ID from auth.users
+        
+    Returns:
+        User credit record with balance and subscription info, or None if not found
+    """
+    try:
+        def _get_sync():
+            response = (
+                supabase_client.table("user_credits")
+                .select("*")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+
+        record = await run_in_threadpool(_get_sync)
+        return record
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to retrieve user credits from Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while retrieving user credits: {str(e)}"
+        )
+
+async def initialize_user_credits(user_id: str) -> dict:
+    """Creates initial credit record for a new user with 30 free credits.
+    
+    Args:
+        user_id: The user's ID from auth.users
+        
+    Returns:
+        The newly created user credit record
+    """
+    try:
+        def _create_sync():
+            response = (
+                supabase_client.table("user_credits")
+                .insert({
+                    "user_id": user_id,
+                    "credits_balance": 30,
+                    "subscription_tier": "free",
+                    "total_credits_purchased": 0,
+                    "total_credits_earned": 30
+                })
+                .execute()
+            )
+            if not response.data:
+                raise HTTPException(status_code=502, detail="Failed to create user credits record")
+            return response.data[0]
+
+        created_record = await run_in_threadpool(_create_sync)
+        
+        # Log the initial credit grant
+        await log_credit_transaction(
+            user_id=user_id,
+            transaction_type="grant",
+            credits_amount=30,
+            description="Initial free credits for new user"
+        )
+        
+        return created_record
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to initialize user credits. Upstream error: {e.response.status_code} - {e.response.text}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while initializing user credits: {str(e)}"
+        )
+
+async def get_operation_cost(operation_key: str) -> dict | None:
+    """Retrieves the credit cost and API cost for a specific operation.
+    
+    Args:
+        operation_key: The operation key (e.g., 'text_to_image_stability_core')
+        
+    Returns:
+        Operation cost record with credits_cost and api_cost_usd, or None if not found
+    """
+    try:
+        def _get_sync():
+            response = (
+                supabase_client.table("operation_costs")
+                .select("*")
+                .eq("operation_key", operation_key)
+                .eq("is_active", True)
+                .execute()
+            )
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+
+        record = await run_in_threadpool(_get_sync)
+        return record
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to retrieve operation cost from Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while retrieving operation cost: {str(e)}"
+        )
+
+async def check_and_deduct_credits(user_id: str, operation_key: str, task_id: str | None = None) -> dict:
+    """Checks if user has sufficient credits and deducts them for an operation.
+    
+    Args:
+        user_id: The user's ID from auth.users
+        operation_key: The operation key to check cost for
+        task_id: Optional task ID to link the transaction
+        
+    Returns:
+        Dict with success status and remaining credits
+        
+    Raises:
+        HTTPException: 400 if insufficient credits, 404 if operation not found, others for system errors
+    """
+    # Get operation cost
+    operation_cost = await get_operation_cost(operation_key)
+    if not operation_cost:
+        raise HTTPException(status_code=404, detail=f"Operation '{operation_key}' not found or inactive")
+    
+    credits_needed = operation_cost["credits_cost"]
+    api_cost = float(operation_cost["api_cost_usd"])
+    
+    # Get current user credits
+    user_credits = await get_user_credits(user_id)
+    if not user_credits:
+        # Initialize credits for new user
+        user_credits = await initialize_user_credits(user_id)
+    
+    current_balance = user_credits["credits_balance"]
+    
+    # Check if user has enough credits
+    if current_balance < credits_needed:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Insufficient credits. Need {credits_needed}, have {current_balance}"
+        )
+    
+    # Deduct credits
+    new_balance = current_balance - credits_needed
+    
+    try:
+        def _update_sync():
+            response = (
+                supabase_client.table("user_credits")
+                .update({
+                    "credits_balance": new_balance,
+                    "updated_at": "now()"
+                })
+                .eq("user_id", user_id)
+                .execute()
+            )
+            if not response.data:
+                raise HTTPException(status_code=502, detail="Failed to update user credits")
+            return response.data[0]
+
+        updated_record = await run_in_threadpool(_update_sync)
+        
+        # Log the transaction
+        await log_credit_transaction(
+            user_id=user_id,
+            transaction_type="usage",
+            credits_amount=-credits_needed,
+            operation_type=operation_key,
+            operation_cost_usd=api_cost,
+            task_id=task_id,
+            description=f"Used {credits_needed} credits for {operation_cost['operation_name']}"
+        )
+        
+        return {
+            "success": True,
+            "credits_deducted": credits_needed,
+            "remaining_credits": new_balance,
+            "operation_cost_usd": api_cost
+        }
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to deduct user credits. Upstream error: {e.response.status_code} - {e.response.text}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while deducting credits: {str(e)}"
+        )
+
+async def log_credit_transaction(
+    user_id: str,
+    transaction_type: str,  # 'usage', 'purchase', 'grant', 'refund'
+    credits_amount: int,  # Positive for additions, negative for usage
+    operation_type: str | None = None,
+    operation_cost_usd: float | None = None,
+    task_id: str | None = None,
+    description: str | None = None,
+    metadata: dict | None = None
+) -> dict:
+    """Logs a credit transaction for audit and analytics.
+    
+    Args:
+        user_id: The user's ID from auth.users
+        transaction_type: Type of transaction ('usage', 'purchase', 'grant', 'refund')
+        credits_amount: Amount of credits (positive for additions, negative for usage)
+        operation_type: Optional operation key for usage transactions
+        operation_cost_usd: Optional API cost for usage transactions
+        task_id: Optional task ID to link transaction to
+        description: Optional human-readable description
+        metadata: Optional additional metadata
+        
+    Returns:
+        The created transaction record
+    """
+    insert_data = {
+        "user_id": user_id,
+        "transaction_type": transaction_type,
+        "credits_amount": credits_amount,
+    }
+    
+    if operation_type is not None:
+        insert_data["operation_type"] = operation_type
+    if operation_cost_usd is not None:
+        insert_data["operation_cost_usd"] = operation_cost_usd
+    if task_id is not None:
+        insert_data["task_id"] = task_id
+    if description is not None:
+        insert_data["description"] = description
+    if metadata is not None:
+        insert_data["metadata"] = metadata
+
+    try:
+        def _insert_sync():
+            response = (
+                supabase_client.table("credit_transactions")
+                .insert(insert_data)
+                .execute()
+            )
+            if not response.data:
+                raise HTTPException(status_code=502, detail="Failed to log credit transaction")
+            return response.data[0]
+
+        created_record = await run_in_threadpool(_insert_sync)
+        return created_record
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to log credit transaction. Upstream error: {e.response.status_code} - {e.response.text}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while logging credit transaction: {str(e)}"
+        )
+
+async def get_user_credit_history(user_id: str, limit: int = 50, offset: int = 0) -> list[dict]:
+    """Retrieves user's credit transaction history.
+    
+    Args:
+        user_id: The user's ID from auth.users
+        limit: Maximum number of transactions to return
+        offset: Number of transactions to skip for pagination
+        
+    Returns:
+        List of credit transaction records
+    """
+    try:
+        def _get_sync():
+            response = (
+                supabase_client.table("credit_transactions")
+                .select("*")
+                .eq("user_id", user_id)
+                .order("created_at", desc=True)
+                .limit(limit)
+                .offset(offset)
+                .execute()
+            )
+            return response.data or []
+
+        records = await run_in_threadpool(_get_sync)
+        return records
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to retrieve credit history. Upstream error: {e.response.status_code} - {e.response.text}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while retrieving credit history: {str(e)}"
+        ) 

@@ -15,18 +15,13 @@ The mobile frontend (detailed in `.documentation/frontend_architecture.md`) comm
 
 ## Key Features
 
--   **Unified API for AI Generation**: Provides endpoints for:
-    -   Image-to-Image (2D concepts via OpenAI)
-    -   Text-to-Model (3D models via Tripo AI)
-    -   Image-to-Model (3D models via Tripo AI)
-    -   Sketch-to-Model (3D models via Tripo AI)
-    -   Photo-to-Model (3D models via Tripo AI)
-    -   Model Refinement (via Tripo AI)
--   **Task Status Polling**: Allows the frontend to check the status of ongoing generation tasks.
--   **Secure API Key Management**: External API keys are stored and managed securely on the BFF server.
--   **Prompt Customization**: Adapts user prompts and style selections for optimal results from AI services.
--   **Asynchronous Task Processing**: Leverages Celery workers to handle long-running AI generation tasks without blocking API responses.
--   **Rate Limiting**: Implements per-client rate limits on API endpoints using `fastapi-limiter` and `slowapi`.
+-   **Multi-Provider AI Integration**: OpenAI, Tripo AI, Stability AI, and Recraft
+-   **2D Image Generation**: Text-to-Image, Image-to-Image, Sketch-to-Image, Image-Inpaint
+-   **3D Model Generation**: Text-to-Model, Image-to-Model
+-   **Background Removal**: Remove backgrounds from images
+-   **Model Refinement**: Enhance existing 3D models
+-   **Asynchronous Processing**: Real-time status updates via polling
+-   **Supabase Integration**: Automatic asset management and database updates
 
 ## Technology Stack
 

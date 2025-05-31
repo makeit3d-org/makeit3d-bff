@@ -8,7 +8,6 @@ from app.config import settings
 from app.schemas.generation_schemas import (
     TextToModelRequest,
     ImageToModelRequest,
-    SketchToModelRequest,
     RefineModelRequest
 )
 
@@ -178,51 +177,6 @@ async def generate_image_to_model(
         logger.info(f"Multiview payload structure: {len([f for f in files_list if f])} non-empty views out of 4 positions")
         logger.info(f"View mapping: {[(i, view_names[i], '✓' if i < len(original_urls) else '○') for i in range(4)]}")
         return await call_tripo_task_api("multiview_to_model", api_payload)
-
-async def generate_sketch_to_model(
-    image_bytes: bytes, 
-    original_filename: str, # Used to infer mime_type, can be simple like "sketch.png"
-    request_model: SketchToModelRequest
-) -> Dict[str, Any]:
-    """Calls Tripo AI image-to-model endpoint using proper API v2 format for a sketch."""
-    
-    payload_params = request_model.model_dump(exclude_none=True, exclude={"input_sketch_asset_url"})
-    logger.info("Generating sketch-to-model with Tripo AI using proper API v2 format.")
-
-    # Determine file type from filename (default to png for sketches)
-    file_type = "png"  # Default for sketches
-    if original_filename and (original_filename.lower().endswith(".jpg") or original_filename.lower().endswith(".jpeg")):
-        file_type = "jpg"
-        
-    # Get the original URL from the request model
-    sketch_url = request_model.input_sketch_asset_url
-    if not sketch_url:
-        raise ValueError("input_sketch_asset_url is required for Tripo API v2")
-    
-    # Use proper Tripo API v2 structure
-    api_payload = {
-        "file": {
-            "type": file_type,
-            "url": sketch_url
-        }
-    }
-    api_payload.update(payload_params) # Add other params like texture, pbr etc.
-
-    # Remove parameters not typically supported/used by image_to_model for sketches or if we want default behavior
-    # Prompt is often not used when an image is the primary driver.
-    if "prompt" in api_payload:
-        logger.info("Removing 'prompt' from payload for sketch_to_model (image_to_model type).")
-        api_payload.pop("prompt")
-    
-    # Style is also often intrinsic to the sketch image.
-    if "style" in api_payload:
-        logger.info("Removing 'style' from payload for sketch_to_model (image_to_model type) to use image style.")
-        api_payload.pop("style")
-
-    logger.info(f"Final payload keys for image_to_model (sketch): {list(api_payload.keys())}")
-    logger.info(f"Using Tripo API v2 format with file.url: {sketch_url}")
-
-    return await call_tripo_task_api("image_to_model", api_payload)
 
 async def refine_model(
     model_bytes: bytes, 

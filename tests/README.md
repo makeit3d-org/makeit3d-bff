@@ -261,7 +261,7 @@ This section outlines the sequence of operations for each test in `test_endpoint
 1.  Downloads a public sketch image.
 2.  **Simulates client behavior**: Uploads this sketch image to a test path in Supabase Storage.
 3.  Constructs the Supabase URL for the uploaded sketch.
-4.  Calls BFF `POST /generate/sketch-to-model` endpoint with a JSON payload containing a client-generated `task_id`, the `input_sketch_asset_url` (the Supabase URL), prompt, and `texture_quality`.
+4.  Calls BFF `POST /generate/sketch-to-image` endpoint with a JSON payload containing a client-generated `task_id`, the `input_sketch_asset_url` (the Supabase URL), prompt, and Stability AI parameters.
     *   *(BFF Internally)*: Fetches the sketch from the Supabase URL. Proceeds similar to `test_generate_image_to_model` for creating `models` record, Celery task, Tripo interaction, final upload to client's Supabase Storage, and updating client's `models` table.
 5.  Receives a Celery `task_id` from BFF for the Tripo operation.
 6.  Polls BFF `GET /tasks/{celery_task_id}/status?service=tripo`.
@@ -276,4 +276,44 @@ This section outlines the sequence of operations for each test in `test_endpoint
 2.  Uploads the image to Supabase Storage (`test_uploads/...`) using `supabase_client.upload_image_to_storage`.
 3.  Creates a metadata record in the `concept_images` Supabase table using `supabase_client.create_concept_image_record`, storing the image path and bucket name.
 4.  Downloads the image directly from Supabase Storage using `supabase_client.download_image_from_storage`.
-5.  Retrieves the metadata record from the `concept_images` table using `supabase_client.get_supabase_client().table(...).select(...).execute()` and verifies its contents. 
+5.  Retrieves the metadata record from the `concept_images` table using `supabase_client.get_supabase_client().table(...).select(...).execute()` and verifies its contents.
+
+### Test 6: Image Inpainting (Recraft AI)
+
+1.  Downloads a public test image and mask from Supabase public storage.
+2.  Uploads both the image and mask to Supabase Storage under the test folder structure.
+3.  Calls BFF `POST /generate/image-inpaint` endpoint with a JSON payload containing a client-generated `task_id`, the `input_image_asset_url` and `input_mask_asset_url` (the Supabase URLs), prompt, and Recraft AI parameters.
+4.  Polls the BFF `/task-status/{celery_task_id}` endpoint until the task completes.
+5.  Downloads the generated inpainted image from the returned Supabase URL and verifies it.
+
+## 📋 Available Tests
+
+### Core Generation Tests
+1. **Image-to-Image Enhancement** (OpenAI, Stability, Recraft)
+   - `test_generate_image_to_image` - OpenAI DALL-E
+   - `test_generate_image_to_image_stability` - Stability AI
+   - `test_generate_image_to_image_recraft` - Recraft AI
+
+2. **Text-to-Image Generation** (OpenAI, Stability, Recraft)
+   - `test_generate_text_to_image` - OpenAI DALL-E
+   - `test_generate_text_to_image_stability` - Stability AI
+   - `test_generate_text_to_image_recraft` - Recraft AI
+
+3. **3D Model Generation**
+   - `test_generate_text_to_model` - Tripo AI (text-to-3D)
+   - `test_generate_image_to_model` - Tripo AI (single image-to-3D)
+   - `test_generate_image_to_model_stability` - Stability AI SPAR3D
+   - `test_generate_multiview_to_model` - Tripo AI (multi-view to 3D)
+
+4. **Specialized Image Processing**
+   - `test_generate_sketch_to_image` - Stability AI (sketch enhancement)
+   - `test_generate_remove_background_stability` - Stability AI
+   - `test_generate_remove_background_recraft` - Recraft AI
+   - `test_generate_image_inpaint` - Recraft AI (inpainting)
+
+5. **Advanced Feature Tests**
+   - `test_image_to_model_relationship_tracking` - Verifies linking between 2D images and 3D models
+
+### Standalone Tests
+6. **Search and Recolor Test**
+   - `stability_image_recolor.py` - Stability AI Search and Recolor endpoint 

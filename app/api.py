@@ -1,16 +1,59 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+import slowapi
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from app.limiter import limiter, _rate_limit_exceeded_handler # Import from app.limiter
+import logging
 
-from app.routers import generation, task_status # Import only the correct routers
+# Import routers - only tasks, generation_image, and generation_model are needed
+from app.routers import tasks, generation_image, generation_model
+from app.config import settings
 
-app = FastAPI()
-app.state.limiter = limiter # Attach the limiter to the app state
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler) # Add the exception handler
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-app.include_router(generation.router, prefix="/generate", tags=["generate"])
-app.include_router(task_status.router, prefix="", tags=["Task Status"]) # Task status at root level
+# Create FastAPI app
+app = FastAPI(
+    title="MakeIT3D BFF API",
+    description="Backend for Frontend API for MakeIT3D platform",
+    version="1.0.0"
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Include routers
+app.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
+app.include_router(generation_image.router, prefix="/generate", tags=["generation-images"])
+app.include_router(generation_model.router, prefix="/generate", tags=["generation-models"])
 
 @app.get("/")
-def read_root():
-    return {"Hello": "World"} 
+async def root():
+    """Root endpoint - returns API information."""
+    return {
+        "message": "MakeIT3D BFF API",
+        "version": "1.0.0",
+        "endpoints": {
+            "tasks": "/tasks",
+            "generation_images": "/generate (image endpoints)",
+            "generation_models": "/generate (model endpoints)"
+        }
+    }
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring."""
+    return {"status": "healthy"} 
