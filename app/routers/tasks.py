@@ -13,7 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-@router.get("/tasks/{celery_task_id}/status", response_model=TaskStatusResponse)
+@router.get("/{celery_task_id}/status", response_model=TaskStatusResponse)
 async def get_task_status_endpoint(
     celery_task_id: str, 
     service: str = Query(..., description="The AI service used for the task: 'openai' or 'tripoai'")
@@ -66,14 +66,14 @@ async def get_task_status_endpoint(
                          logger.error(f"OpenAI Celery task {celery_task_id} result missing db_record_id.")
                          raise HTTPException(status_code=500, detail="OpenAI task result incomplete for DB lookup.")
 
-                    # Fetch the record from concept_images using the correct supabase_handler function
-                    concept_image_record = await supabase_handler.get_concept_image_record_by_id(concept_image_id=db_record_id)
+                    # Fetch the record from images using the correct supabase_handler function
+                    image_record = await supabase_handler.get_image_record_by_id(image_id=db_record_id)
                     
-                    if not concept_image_record:
-                         logger.error(f"Failed to fetch concept_image record for ID {db_record_id} (Celery task {celery_task_id}).")
-                         return TaskStatusResponse(task_id=celery_task_id, status="failed", error=f"Concept image record {db_record_id} not found.", asset_url=None)
+                    if not image_record:
+                         logger.error(f"Failed to fetch image record for ID {db_record_id} (Celery task {celery_task_id}).")
+                         return TaskStatusResponse(task_id=celery_task_id, status="failed", error=f"Image record {db_record_id} not found.", asset_url=None)
 
-                    final_asset_url = concept_image_record.get("asset_url")
+                    final_asset_url = image_record.get("asset_url")
                     if not final_asset_url:
                         # Fallback to first URL from Celery result if main record URL is missing (e.g. n > 1 images)
                         if celery_payload.get("image_urls") and len(celery_payload["image_urls"]) > 0:
@@ -87,7 +87,7 @@ async def get_task_status_endpoint(
                     return TaskStatusResponse(task_id=celery_task_id, status="complete", asset_url=final_asset_url)
 
                 except Exception as e_db_fetch:
-                    logger.error(f"Error fetching/processing OpenAI concept image record {db_record_id} for Celery task {celery_task_id}: {e_db_fetch}", exc_info=True)
+                    logger.error(f"Error fetching/processing OpenAI image record {db_record_id} for Celery task {celery_task_id}: {e_db_fetch}", exc_info=True)
                     return TaskStatusResponse(task_id=celery_task_id, status="failed", error=str(e_db_fetch), asset_url=None)
             
             elif openai_task_reported_status and "failed" in openai_task_reported_status:

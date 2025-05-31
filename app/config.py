@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_service_key: str
     input_assets_table_name: str = "input_assets"
-    concept_images_table_name: str = "concept_images"
+    images_table_name: str = "images"
     models_table_name: str = "models"
     generated_assets_bucket_name: str = "makeit3d-app-assets"
 

@@ -2,6 +2,7 @@ import httpx
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Request
 from typing import List, Optional
 import logging
+import base64
 
 # Test user ID for endpoints when auth is not implemented
 TEST_USER_ID = "00000000-0000-4000-8000-000000000001"
@@ -59,18 +60,19 @@ async def generate_image_to_image_endpoint(
         raise HTTPException(status_code=500, detail="Failed to retrieve input image.")
 
     try:
-        # Create the record in concept_images table before dispatching the task
+        # Create the record in images table before dispatching the task
         # The Celery task ID will be added in a subsequent update.
-        db_record = await supabase_handler.create_concept_image_record(
+        db_record = await supabase_handler.create_image_record(
             task_id=request_data.task_id,
             prompt=request_data.prompt,
             style=request_data.style,
             status="pending", # Initial status before Celery task ID is known
             user_id=user_id_from_auth, # Pass user_id if available
+            image_type="ai_generated",  # Specify this is an AI generated image
             # source_input_asset_id needs to be passed if available/required by schema
         )
-        concept_image_db_id = db_record["id"]
-        logger.info(f"Created concept image record {concept_image_db_id} for task {request_data.task_id}")
+        image_db_id = db_record["id"]
+        logger.info(f"Created image record {image_db_id} for task {request_data.task_id}")
     except HTTPException as e:
         logger.error(f"Failed to create Supabase record for task {request_data.task_id}: {e.detail}")
         raise
@@ -78,47 +80,47 @@ async def generate_image_to_image_endpoint(
         logger.error(f"Unexpected error creating Supabase record for task {request_data.task_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to initialize task record.")
 
-    logger.info(f"Sending {request_data.provider} image generation task to Celery for db_id: {concept_image_db_id}")
+    logger.info(f"Sending {request_data.provider} image generation task to Celery for db_id: {image_db_id}")
     
     if request_data.provider == "openai":
         celery_task = generate_openai_image_task.delay(
-            concept_image_db_id=concept_image_db_id,
-            image_bytes=image_bytes,
-            original_filename=request_data.input_image_asset_url.split('/')[-1],
-            request_data_dict=request_data.model_dump()
+            image_db_id,
+            base64.b64encode(image_bytes).decode('utf-8'),
+            request_data.input_image_asset_url.split('/')[-1],
+            request_data.model_dump()
         )
     elif request_data.provider == "stability":
         celery_task = generate_stability_image_task.delay(
-            concept_image_db_id=concept_image_db_id,
-            image_bytes=image_bytes,
-            request_data_dict=request_data.model_dump(),
-            operation_type="image_to_image"
+            image_db_id,
+            base64.b64encode(image_bytes).decode('utf-8'),
+            request_data.model_dump(),
+            "image_to_image"
         )
     elif request_data.provider == "recraft":
         celery_task = generate_recraft_image_task.delay(
-            concept_image_db_id=concept_image_db_id,
-            image_bytes=image_bytes,
-            request_data_dict=request_data.model_dump(),
-            operation_type="image_to_image"
+            image_db_id,
+            base64.b64encode(image_bytes).decode('utf-8'),
+            request_data.model_dump(),
+            "image_to_image"
         )
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported provider: {request_data.provider}")
         
-    logger.info(f"Celery task ID: {celery_task.id} for concept_image_db_id: {concept_image_db_id}")
+    logger.info(f"Celery task ID: {celery_task.id} for image_db_id: {image_db_id}")
 
     # Update the Supabase record with the Celery task ID and set status to 'processing'
     try:
-        await supabase_handler.update_concept_image_record(
+        await supabase_handler.update_image_record(
             task_id=request_data.task_id, # Main client task_id
-            concept_image_id=concept_image_db_id,
+            image_id=image_db_id,
             status="processing", # Indicates task sent to Celery and being processed
             ai_service_task_id=celery_task.id
         )
-        logger.info(f"Updated concept image record {concept_image_db_id} with Celery task ID {celery_task.id}")
+        logger.info(f"Updated image record {image_db_id} with Celery task ID {celery_task.id}")
     except Exception as e:
         # Log this error but proceed to return task ID to client, as Celery task is dispatched.
         # The task itself should handle failures gracefully.
-        logger.error(f"Failed to update Supabase record {concept_image_db_id} with Celery task ID {celery_task.id}: {e}", exc_info=True)
+        logger.error(f"Failed to update Supabase record {image_db_id} with Celery task ID {celery_task.id}: {e}", exc_info=True)
         # Potentially raise an alert or specific monitoring event here.
 
     return TaskIdResponse(celery_task_id=celery_task.id)
@@ -146,55 +148,56 @@ async def generate_text_to_image_endpoint(request: Request, request_data: TextTo
         raise HTTPException(status_code=500, detail="Failed to retrieve input image.")
 
     try:
-        # Create the record in concept_images table before dispatching the task
-        db_record = await supabase_handler.create_concept_image_record(
+        # Create the record in images table before dispatching the task
+        db_record = await supabase_handler.create_image_record(
             task_id=request_data.task_id,
             prompt=request_data.prompt,
             style=request_data.style,
             status="pending",
             user_id=user_id_from_auth,
+            image_type="ai_generated",
             metadata={"provider": request_data.provider}
         )
-        concept_image_db_id = db_record["id"]
-        logger.info(f"Created concept image record {concept_image_db_id} for task {request_data.task_id}")
+        image_db_id = db_record["id"]
+        logger.info(f"Created image record {image_db_id} for task {request_data.task_id}")
 
-        logger.info(f"Sending {request_data.provider} text-to-image task to Celery for concept_image_db_id: {concept_image_db_id}")
+        logger.info(f"Sending {request_data.provider} text-to-image task to Celery for image_db_id: {image_db_id}")
         
         if request_data.provider == "openai":
-            # For OpenAI text-to-image, we don't need image_bytes, so pass empty bytes
+            # For OpenAI text-to-image, we don't need image_bytes, so pass empty string
             celery_task = generate_openai_image_task.delay(
-                concept_image_db_id=concept_image_db_id,
-                image_bytes=b"",  # Empty bytes for text-to-image
-                original_filename="",  # No filename for text-to-image
-                request_data_dict=request_data.model_dump()
+                image_db_id,
+                "",  # Empty string for text-to-image
+                "",  # No filename for text-to-image
+                request_data.model_dump()
             )
         elif request_data.provider == "stability":
             celery_task = generate_stability_image_task.delay(
-                concept_image_db_id=concept_image_db_id,
-                image_bytes=b"",  # Empty bytes for text-to-image
-                request_data_dict=request_data.model_dump(),
-                operation_type="text_to_image"
+                image_db_id,
+                "",  # Empty string for text-to-image
+                request_data.model_dump(),
+                "text_to_image"
             )
         elif request_data.provider == "recraft":
             celery_task = generate_recraft_image_task.delay(
-                concept_image_db_id=concept_image_db_id,
-                image_bytes=b"",  # Empty bytes for text-to-image
-                request_data_dict=request_data.model_dump(),
-                operation_type="text_to_image"
+                image_db_id,
+                "",  # Empty string for text-to-image
+                request_data.model_dump(),
+                "text_to_image"
             )
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported provider: {request_data.provider}")
             
-        logger.info(f"Celery task ID: {celery_task.id} for concept_image_db_id: {concept_image_db_id}")
+        logger.info(f"Celery task ID: {celery_task.id} for image_db_id: {image_db_id}")
 
         # Update the Supabase record with the Celery task ID and set status to 'processing'
-        await supabase_handler.update_concept_image_record(
+        await supabase_handler.update_image_record(
             task_id=request_data.task_id,
-            concept_image_id=concept_image_db_id,
+            image_id=image_db_id,
             status="processing",
             ai_service_task_id=celery_task.id
         )
-        logger.info(f"Updated concept image record {concept_image_db_id} with Celery task ID {celery_task.id}")
+        logger.info(f"Updated image record {image_db_id} with Celery task ID {celery_task.id}")
         
         return TaskIdResponse(celery_task_id=celery_task.id)
 
@@ -203,11 +206,11 @@ async def generate_text_to_image_endpoint(request: Request, request_data: TextTo
     except Exception as e:
         logger.error(f"Error in /text-to-image endpoint for task {request_data.task_id}: {e}", exc_info=True)
         # Attempt to update status to failed if db_record was created
-        if 'concept_image_db_id' in locals() and concept_image_db_id:
+        if 'image_db_id' in locals() and image_db_id:
             try:
-                await supabase_handler.update_concept_image_record(task_id=request_data.task_id, concept_image_id=concept_image_db_id, status="failed")
+                await supabase_handler.update_image_record(task_id=request_data.task_id, image_id=image_db_id, status="failed")
             except Exception as db_update_e:
-                logger.error(f"Failed to update concept image record to failed: {db_update_e}")
+                logger.error(f"Failed to update image record to failed: {db_update_e}")
         raise HTTPException(status_code=500, detail=f"Failed to process text-to-image request: {str(e)}")
 
 @router.post("/sketch-to-image", response_model=TaskIdResponse)
@@ -229,41 +232,47 @@ async def generate_sketch_to_image_endpoint(request: Request, request_data: Sket
         raise HTTPException(status_code=500, detail="Failed to retrieve input sketch from Supabase for asynchronous processing.")
 
     try:
-        # Create the record in concept_images table before dispatching the task
-        db_record = await supabase_handler.create_concept_image_record(
+        # Create the record in images table before dispatching the task
+        db_record = await supabase_handler.create_image_record(
             task_id=request_data.task_id,
             prompt=request_data.prompt,
             style=request_data.style_preset,
             status="pending",
-            user_id=user_id_from_auth
+            user_id=user_id_from_auth,
+            image_type="ai_generated"
         )
-        concept_image_db_id = db_record["id"]
-        logger.info(f"Created concept image record {concept_image_db_id} for sketch-to-image task {request_data.task_id}")
+        image_db_id = db_record["id"]
+        logger.info(f"Created image record {image_db_id} for sketch-to-image task {request_data.task_id}")
 
         # Use Stability image task for sketch-to-image
         celery_task = generate_stability_image_task.delay(
-            concept_image_db_id=concept_image_db_id,
-            image_bytes=image_bytes,
-            request_data_dict=request_data.model_dump(),
-            operation_type="sketch_to_image"
+            image_db_id,
+            base64.b64encode(image_bytes).decode('utf-8'),
+            request_data.model_dump(),
+            "sketch_to_image"
         )
-        logger.info(f"Celery task ID: {celery_task.id} for concept_image_db_id: {concept_image_db_id}")
+        logger.info(f"Celery task ID: {celery_task.id} for image_db_id: {image_db_id}")
 
-        await supabase_handler.update_concept_image_record(
+        await supabase_handler.update_image_record(
             task_id=request_data.task_id,
-            concept_image_id=concept_image_db_id,
+            image_id=image_db_id,
             status="processing",
             ai_service_task_id=celery_task.id
         )
+        logger.info(f"Updated image record {image_db_id} with Celery task ID {celery_task.id}")
+
         return TaskIdResponse(celery_task_id=celery_task.id)
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in /sketch-to-image endpoint for task {request_data.task_id}: {e}", exc_info=True)
-        if 'concept_image_db_id' in locals() and concept_image_db_id:
-            try: await supabase_handler.update_concept_image_record(task_id=request_data.task_id, concept_image_id=concept_image_db_id, status="failed")
-            except: pass
+        # Attempt to update status to failed if db_record was created
+        if 'image_db_id' in locals() and image_db_id:
+            try:
+                await supabase_handler.update_image_record(task_id=request_data.task_id, image_id=image_db_id, status="failed")
+            except Exception as db_update_e:
+                logger.error(f"Failed to update image record to failed: {db_update_e}")
         raise HTTPException(status_code=500, detail=f"Failed to process sketch-to-image request: {str(e)}")
 
 @router.post("/remove-background", response_model=TaskIdResponse)
@@ -285,39 +294,39 @@ async def remove_background_endpoint(request: Request, request_data: RemoveBackg
         raise HTTPException(status_code=500, detail="Failed to retrieve input image from Supabase for asynchronous processing.")
 
     try:
-        # Create the record in concept_images table before dispatching the task
-        db_record = await supabase_handler.create_concept_image_record(
+        # Create the record in images table before dispatching the task
+        db_record = await supabase_handler.create_image_record(
             task_id=request_data.task_id,
             prompt="Remove background",
             style=None,
             status="pending",
             user_id=user_id_from_auth
         )
-        concept_image_db_id = db_record["id"]
-        logger.info(f"Created concept image record {concept_image_db_id} for remove-background task {request_data.task_id}")
+        image_db_id = db_record["id"]
+        logger.info(f"Created image record {image_db_id} for remove-background task {request_data.task_id}")
 
         if request_data.provider == "stability":
             celery_task = generate_stability_image_task.delay(
-                concept_image_db_id=concept_image_db_id,
-                image_bytes=image_bytes,
-                request_data_dict=request_data.model_dump(),
-                operation_type="remove_background"
+                image_db_id,
+                base64.b64encode(image_bytes).decode('utf-8'),
+                request_data.model_dump(),
+                "remove_background"
             )
         elif request_data.provider == "recraft":
             celery_task = generate_recraft_image_task.delay(
-                concept_image_db_id=concept_image_db_id,
-                image_bytes=image_bytes,
-                request_data_dict=request_data.model_dump(),
-                operation_type="remove_background"
+                image_db_id,
+                base64.b64encode(image_bytes).decode('utf-8'),
+                request_data.model_dump(),
+                "remove_background"
             )
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported provider for remove-background: {request_data.provider}")
             
-        logger.info(f"Celery task ID: {celery_task.id} for concept_image_db_id: {concept_image_db_id}")
+        logger.info(f"Celery task ID: {celery_task.id} for image_db_id: {image_db_id}")
 
-        await supabase_handler.update_concept_image_record(
+        await supabase_handler.update_image_record(
             task_id=request_data.task_id,
-            concept_image_id=concept_image_db_id,
+            image_id=image_db_id,
             status="processing",
             ai_service_task_id=celery_task.id
         )
@@ -327,8 +336,8 @@ async def remove_background_endpoint(request: Request, request_data: RemoveBackg
         raise
     except Exception as e:
         logger.error(f"Error in /remove-background endpoint for task {request_data.task_id}: {e}", exc_info=True)
-        if 'concept_image_db_id' in locals() and concept_image_db_id:
-            try: await supabase_handler.update_concept_image_record(task_id=request_data.task_id, concept_image_id=concept_image_db_id, status="failed")
+        if 'image_db_id' in locals() and image_db_id:
+            try: await supabase_handler.update_image_record(task_id=request_data.task_id, image_id=image_db_id, status="failed")
             except: pass
         raise HTTPException(status_code=500, detail=f"Failed to process remove-background request: {str(e)}")
 
@@ -353,16 +362,16 @@ async def image_inpaint_endpoint(request: Request, request_data: ImageInpaintReq
         raise HTTPException(status_code=404, detail="Failed to fetch input image or mask from Supabase for asynchronous processing.")
 
     try:
-        # Create the record in concept_images table before dispatching the task
-        db_record = await supabase_handler.create_concept_image_record(
+        # Create the record in images table before dispatching the task
+        db_record = await supabase_handler.create_image_record(
             task_id=request_data.task_id,
             prompt=request_data.prompt,
             style=request_data.style,
             status="pending",
             user_id=user_id_from_auth
         )
-        concept_image_db_id = db_record["id"]
-        logger.info(f"Created concept image record {concept_image_db_id} for image-inpaint task {request_data.task_id}")
+        image_db_id = db_record["id"]
+        logger.info(f"Created image record {image_db_id} for image-inpaint task {request_data.task_id}")
 
         # Use Recraft image task with inpaint operation
         from app.tasks.generation_tasks import generate_recraft_image_task
@@ -373,17 +382,17 @@ async def image_inpaint_endpoint(request: Request, request_data: ImageInpaintReq
         request_data_with_mask["mask_bytes"] = mask_bytes
         
         celery_task = generate_recraft_image_task.delay(
-            concept_image_db_id=concept_image_db_id,
-            image_bytes=image_bytes,
-            request_data_dict=request_data_with_mask,
-            operation_type="inpaint"
+            image_db_id,
+            base64.b64encode(image_bytes).decode('utf-8'),
+            request_data_with_mask,
+            "inpaint"
         )
             
-        logger.info(f"Celery task ID: {celery_task.id} for concept_image_db_id: {concept_image_db_id}")
+        logger.info(f"Celery task ID: {celery_task.id} for image_db_id: {image_db_id}")
 
-        await supabase_handler.update_concept_image_record(
+        await supabase_handler.update_image_record(
             task_id=request_data.task_id,
-            concept_image_id=concept_image_db_id,
+            image_id=image_db_id,
             status="processing",
             ai_service_task_id=celery_task.id
         )
@@ -393,8 +402,8 @@ async def image_inpaint_endpoint(request: Request, request_data: ImageInpaintReq
         raise
     except Exception as e:
         logger.error(f"Error in /image-inpaint endpoint for task {request_data.task_id}: {e}", exc_info=True)
-        if 'concept_image_db_id' in locals() and concept_image_db_id:
-            try: await supabase_handler.update_concept_image_record(task_id=request_data.task_id, concept_image_id=concept_image_db_id, status="failed")
+        if 'image_db_id' in locals() and image_db_id:
+            try: await supabase_handler.update_image_record(task_id=request_data.task_id, image_id=image_db_id, status="failed")
             except: pass
         raise HTTPException(status_code=500, detail=f"Failed to process image-inpaint request: {str(e)}")
 
@@ -418,39 +427,40 @@ async def search_and_recolor_endpoint(request: Request, request_data: SearchAndR
         raise HTTPException(status_code=404, detail="Failed to fetch input image from Supabase for asynchronous processing.")
 
     try:
-        # Create the record in concept_images table before dispatching the task
-        db_record = await supabase_handler.create_concept_image_record(
+        # Create the record in images table before dispatching the task
+        db_record = await supabase_handler.create_image_record(
             task_id=request_data.task_id,
             prompt=request_data.prompt,
             style=request_data.style_preset,
             status="queued",
             user_id="default_user_id",
+            image_type="ai_generated",
             metadata={"async_mode": True, "provider": "stability", "operation": "search_and_recolor"}
         )
-        concept_image_db_id = db_record["id"]
-        logger.info(f"Created concept image DB record {concept_image_db_id} for async task {operation_id}")
+        image_db_id = db_record["id"]
+        logger.info(f"Created image DB record {image_db_id} for async task {operation_id}")
 
         # Convert request data to dict for Celery serialization
         request_data_dict = request_data.model_dump()
 
         # Queue the Celery task
         celery_task = generate_stability_image_task.delay(
-            concept_image_db_id, 
-            image_bytes, 
+            image_db_id, 
+            base64.b64encode(image_bytes).decode('utf-8'), 
             request_data_dict, 
             "search_and_recolor"
         )
         celery_task_id = celery_task.id
-        logger.info(f"Queued async Stability search-and-recolor task {celery_task_id} for DB record {concept_image_db_id}")
+        logger.info(f"Queued async Stability search-and-recolor task {celery_task_id} for DB record {image_db_id}")
 
         # Update the DB record with the Celery task ID
-        await supabase_handler.update_concept_image_record(
+        await supabase_handler.update_image_record(
             task_id=request_data.task_id,
-            concept_image_id=concept_image_db_id,
+            image_id=image_db_id,
             ai_service_task_id=celery_task_id,
             status="queued"
         )
-        logger.info(f"Updated concept image DB record {concept_image_db_id} with Celery task ID {celery_task_id}")
+        logger.info(f"Updated image DB record {image_db_id} with Celery task ID {celery_task_id}")
 
         return TaskIdResponse(celery_task_id=celery_task_id)
 
@@ -458,8 +468,8 @@ async def search_and_recolor_endpoint(request: Request, request_data: SearchAndR
         raise
     except Exception as e:
         logger.error(f"Error in /search-and-recolor endpoint for task {request_data.task_id}: {e}", exc_info=True)
-        if 'concept_image_db_id' in locals() and concept_image_db_id:
-            try: await supabase_handler.update_concept_image_record(task_id=request_data.task_id, concept_image_id=concept_image_db_id, status="failed")
+        if 'image_db_id' in locals() and image_db_id:
+            try: await supabase_handler.update_image_record(task_id=request_data.task_id, image_id=image_db_id, status="failed")
             except: pass
         raise HTTPException(status_code=500, detail=f"Failed to process search-and-recolor request: {str(e)}")
 

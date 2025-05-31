@@ -59,8 +59,8 @@ async def generate_text_to_model_endpoint(request: Request, request_data: TextTo
         logger.info(f"Sending Tripo text-to-model task to Celery for model_db_id: {model_db_id}")
         
         celery_task = generate_tripo_text_to_model_task.delay(
-            model_db_id=model_db_id,
-            request_data_dict=request_data.model_dump()
+            model_db_id,
+            request_data.model_dump()
         )
 
         # Update the record with the Celery task ID
@@ -116,7 +116,7 @@ async def generate_image_to_model_endpoint(request: Request, request_data: Image
             style=request_data.style,
             status="pending",
             user_id=user_id_from_auth,
-            source_concept_image_id=None,  # No concept image in direct image-to-model workflow
+            source_image_id=None,  # No image in direct image-to-model workflow
             metadata={"provider": request_data.provider, **request_data.model_dump(include={"texture", "pbr", "model_version", "face_limit", "auto_size", "texture_quality", "orientation", "texture_resolution", "remesh", "foreground_ratio", "target_type", "target_count", "guidance_scale", "seed"})}
             # Note: source_input_asset_id could be used to track input assets if we create input_assets records
         )
@@ -127,16 +127,16 @@ async def generate_image_to_model_endpoint(request: Request, request_data: Image
         
         if request_data.provider == "tripo":
             celery_task = generate_tripo_image_to_model_task.delay(
-                model_db_id=model_db_id,
-                image_bytes_list=image_bytes_list,
-                original_filenames=original_filenames,
-                request_data_dict=request_data.model_dump()
+                model_db_id,
+                image_bytes_list,
+                original_filenames,
+                request_data.model_dump()
             )
         elif request_data.provider == "stability":
             celery_task = generate_stability_model_task.delay(
-                model_db_id=model_db_id,
-                image_bytes=image_bytes_list[0],  # Use first image for Stability
-                request_data_dict=request_data.model_dump()
+                model_db_id,
+                image_bytes_list[0],  # Use first image for Stability
+                request_data.model_dump()
             )
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported provider for image-to-model: {request_data.provider}")
@@ -190,10 +190,10 @@ async def refine_model_endpoint(request: Request, request_data: RefineModelReque
         logger.info(f"Sending Tripo refine-model task to Celery for model_db_id: {model_db_id}")
         
         celery_task = generate_tripo_refine_model_task.delay(
-            model_db_id=model_db_id,
-            model_bytes=model_bytes,
-            original_filename=original_filename,
-            request_data_dict=request_data.model_dump()
+            model_db_id,
+            model_bytes,
+            original_filename,
+            request_data.model_dump()
         )
             
         logger.info(f"Celery task ID: {celery_task.id} for model_db_id: {model_db_id}")

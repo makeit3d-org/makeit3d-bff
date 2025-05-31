@@ -16,7 +16,7 @@ celery_app = Celery(
 celery_app.conf.enable_utc = True
 celery_app.conf.timezone = 'UTC'
 
-# Configure task serialization to use JSON
+# Configure task serialization to use JSON (secure)
 celery_app.conf.task_serializer = 'json'
 celery_app.conf.result_serializer = 'json'
 celery_app.conf.accept_content = ['json']
@@ -34,20 +34,17 @@ celery_app.conf.task_default_exchange = 'default'
 celery_app.conf.task_default_routing_key = 'task.default'
 
 # Route tasks to specific queues
-# Ensure task names in generation_tasks.py are precise for routing if using this method extensively.
-# For MVP, we'll rely on explicit queue naming in apply_async or ensure task names are very distinct.
+# Send image-related tasks (OpenAI, Stability, Recraft) to default queue since celery_worker_default handles them
+# Send Tripo tasks to their respective specialized queues
 celery_app.conf.task_routes = {
-    'app.tasks.generation_tasks.generate_openai_image_task': {'queue': 'openai_queue'},
-    'app.tasks.generation_tasks.generate_tripo_text_to_model_task': {'queue': 'tripo_text_queue'},
-    'app.tasks.generation_tasks.generate_tripo_image_to_model_task': {'queue': 'tripo_image_queue'},
-    'app.tasks.generation_tasks.generate_tripo_refine_model_task': {'queue': 'tripo_other_queue'},
-    'app.tasks.generation_tasks.generate_stability_image_task': {'queue': 'stability_queue'},
-    'app.tasks.generation_tasks.generate_stability_model_task': {'queue': 'stability_queue'},
-    'app.tasks.generation_tasks.generate_recraft_image_task': {'queue': 'recraft_queue'},
-    # Route other Tripo tasks to tripo_other_queue
-    # A more generic router could be based on task name containing 'tripo' but not 'refine'
-    'app.tasks.generation_tasks.generate_tripo_select_concept_task': {'queue': 'tripo_other_queue'},
-    # OpenAI and other tasks will go to the 'default' queue by default
+    'app.tasks.generation_tasks.generate_openai_image_task': {'queue': 'default'},
+    'app.tasks.generation_tasks.generate_stability_image_task': {'queue': 'default'},
+    'app.tasks.generation_tasks.generate_recraft_image_task': {'queue': 'default'},
+    'app.tasks.generation_tasks.generate_stability_model_task': {'queue': 'default'},
+    'app.tasks.generation_tasks.generate_tripo_text_to_model_task': {'queue': 'tripo_other_queue'},
+    'app.tasks.generation_tasks.generate_tripo_image_to_model_task': {'queue': 'tripo_other_queue'},
+    'app.tasks.generation_tasks.generate_tripo_refine_model_task': {'queue': 'tripo_refine_queue'},
+    # Any other tasks will go to the 'default' queue by default
 }
 
 # Explicitly import task modules AFTER celery_app is defined

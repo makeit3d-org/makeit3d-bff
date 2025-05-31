@@ -237,9 +237,9 @@ async def upload_asset_to_storage(
             detail=f"An unexpected error occurred while uploading asset to Supabase Storage: {str(e)}"
         )
 
-async def update_concept_image_record(
+async def update_image_record(
     task_id: str, 
-    concept_image_id: str, # This is the specific ID of the concept image record itself
+    image_id: str, # This is the specific ID of the image record itself
     status: str, 
     asset_url: str | None = None, # Made optional
     ai_service_task_id: str | None = None, 
@@ -247,21 +247,23 @@ async def update_concept_image_record(
     style: str | None = None, 
     source_input_asset_id: str | None = None, 
     is_public: bool | None = None, # Privacy setting update
-    metadata: dict | None = None
+    metadata: dict | None = None,
+    image_type: str | None = None  # Added image_type field
 ) -> dict:
-    """Updates a record in the concept_images table.
+    """Updates a record in the images table.
 
     Args:
         task_id: The main task ID.
-        concept_image_id: The ID of the concept_image record to update.
-        status: The new status of the concept image ('pending', 'processing', 'complete', 'failed').
-        asset_url: Optional Supabase Storage URL of the generated concept image.
+        image_id: The ID of the image record to update.
+        status: The new status of the image ('pending', 'processing', 'complete', 'failed').
+        asset_url: Optional Supabase Storage URL of the generated image.
         ai_service_task_id: Optional ID from the AI service (e.g., OpenAI task ID).
         prompt: The prompt used for generation.
         style: The style used for generation.
         source_input_asset_id: The ID of the input_asset record used as source.
         is_public: Optional privacy setting update.
         metadata: Optional additional metadata.
+        image_type: Optional image type ('upload', 'ai_generated', 'user_sketch').
 
     Returns:
         The updated record data from Supabase.
@@ -272,7 +274,7 @@ async def update_concept_image_record(
             - 502 if there's an error communicating with Supabase.
             - 500 for other unexpected errors.
     """
-    table_name = settings.concept_images_table_name
+    table_name = settings.images_table_name
     update_data = {
         "task_id": task_id,
         "status": status
@@ -291,17 +293,19 @@ async def update_concept_image_record(
         update_data["metadata"] = metadata
     if is_public is not None:
         update_data["is_public"] = is_public
+    if image_type is not None:
+        update_data["image_type"] = image_type
 
     try:
         def _update_sync():
             response = (
                 supabase_client.table(table_name)
                 .update(update_data)
-                .eq("id", concept_image_id)
+                .eq("id", image_id)
                 .execute()
             )
             if not response.data:
-                raise HTTPException(status_code=404, detail=f"Concept image record with ID '{concept_image_id}' not found or not updated.")
+                raise HTTPException(status_code=404, detail=f"Image record with ID '{image_id}' not found or not updated.")
             return response.data[0]
 
         updated_record = await run_in_threadpool(_update_sync)
@@ -310,15 +314,15 @@ async def update_concept_image_record(
     except httpx.HTTPStatusError as e:
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to update concept image record in Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
+            detail=f"Failed to update image record in Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
         )
     except HTTPException: # Re-raise HTTPExceptions from _update_sync
         raise
     except Exception as e:
-        # logger.error(f"Unexpected error updating concept image in Supabase: {e}")
+        # logger.error(f"Unexpected error updating image in Supabase: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected error occurred while updating concept image record: {str(e)}"
+            detail=f"An unexpected error occurred while updating image record: {str(e)}"
         )
 
 async def update_model_record(
@@ -327,7 +331,7 @@ async def update_model_record(
     status: str, 
     asset_url: str | None = None, # Made optional
     source_input_asset_id: str | None = None, 
-    source_concept_image_id: str | None = None, 
+    source_image_id: str | None = None, # Changed from source_concept_image_id
     ai_service_task_id: str | None = None, 
     prompt: str | None = None, 
     style: str | None = None, 
@@ -342,7 +346,7 @@ async def update_model_record(
         status: The new status of the model ('pending', 'processing', 'complete', 'failed').
         asset_url: Optional Supabase Storage URL of the generated model.
         source_input_asset_id: Optional ID of the input_asset record used directly.
-        source_concept_image_id: Optional ID of the concept_image record used as source.
+        source_image_id: Optional ID of the image record used as source.
         ai_service_task_id: Optional ID from the AI service (e.g., Tripo task ID).
         prompt: The prompt used for generation.
         style: The style used for generation.
@@ -367,8 +371,8 @@ async def update_model_record(
         update_data["asset_url"] = asset_url
     if source_input_asset_id is not None:
         update_data["source_input_asset_id"] = source_input_asset_id
-    if source_concept_image_id is not None:
-        update_data["source_concept_image_id"] = source_concept_image_id
+    if source_image_id is not None:
+        update_data["source_image_id"] = source_image_id
     if ai_service_task_id is not None:
         update_data["ai_service_task_id"] = ai_service_task_id
     if prompt is not None:
@@ -408,7 +412,7 @@ async def update_model_record(
             detail=f"An unexpected error occurred while updating model record: {str(e)}"
         )
 
-async def create_concept_image_record(
+async def create_image_record(
     task_id: str,
     prompt: str,
     user_id: str | None = None,
@@ -418,9 +422,10 @@ async def create_concept_image_record(
     source_input_asset_id: str | None = None,
     asset_url: str = "pending", # Placeholder value since this field is required in DB
     is_public: bool = False, # Privacy setting - defaults to private
-    metadata: dict | None = None
+    metadata: dict | None = None,
+    image_type: str = "ai_generated"  # Default to ai_generated, can be 'upload', 'ai_generated', 'user_sketch'
 ) -> dict:
-    """Creates a new record in the concept_images table.
+    """Creates a new record in the images table.
 
     Args:
         task_id: The main task ID.
@@ -433,6 +438,7 @@ async def create_concept_image_record(
         asset_url: Asset URL (defaults to "pending" placeholder since DB requires NOT NULL).
         is_public: Privacy setting - defaults to private.
         metadata: Optional additional metadata.
+        image_type: Type of image - 'upload', 'ai_generated', or 'user_sketch' (defaults to 'ai_generated').
 
     Returns:
         The newly created record data from Supabase, including its 'id'.
@@ -442,13 +448,14 @@ async def create_concept_image_record(
             - 502 if there's an error communicating with Supabase.
             - 500 for other unexpected errors.
     """
-    table_name = settings.concept_images_table_name
+    table_name = settings.images_table_name
     insert_data = {
         "task_id": task_id,
         "prompt": prompt,
         "status": status,
         "asset_url": asset_url,  # Always include asset_url since it's required
         "is_public": is_public,  # Privacy setting
+        "image_type": image_type,  # Always include image_type since it's required
     }
     if user_id is not None:
         insert_data["user_id"] = user_id
@@ -473,7 +480,7 @@ async def create_concept_image_record(
                 # This case might indicate an issue not caught by httpx.HTTPStatusError,
                 # such as RLS preventing insert without returning a specific HTTP error code,
                 # or a misconfiguration. For now, treat as a generic failure.
-                raise HTTPException(status_code=502, detail="Failed to create concept image record in Supabase or no data returned.")
+                raise HTTPException(status_code=502, detail="Failed to create image record in Supabase or no data returned.")
             return response.data[0] # Return the first (and should be only) created record
 
         created_record = await run_in_threadpool(_insert_sync)
@@ -482,26 +489,26 @@ async def create_concept_image_record(
     except httpx.HTTPStatusError as e:
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to create concept image record in Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
+            detail=f"Failed to create image record in Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
         )
     except HTTPException: # Re-raise HTTPExceptions from _insert_sync
         raise
     except Exception as e:
-        # logger.error(f"Unexpected error creating concept image in Supabase: {e}")
+        # logger.error(f"Unexpected error creating image in Supabase: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected error occurred while creating concept image record: {str(e)}"
+            detail=f"An unexpected error occurred while creating image record: {str(e)}"
         )
 
 async def create_model_record(
     task_id: str,
-    prompt: str, # Or derive from concept if source_concept_image_id is provided
+    prompt: str, # Or derive from image if source_image_id is provided
     user_id: str | None = None,
-    style: str | None = None, # Or derive from concept
+    style: str | None = None, # Or derive from image
     status: str = "pending", # Default initial status
     ai_service_task_id: str | None = None,
     source_input_asset_id: str | None = None, # If generating model directly from an input asset
-    source_concept_image_id: str | None = None, # If generating model from a concept image
+    source_image_id: str | None = None, # Changed from source_concept_image_id
     asset_url: str = "pending", # Placeholder value since this field is required in DB
     is_public: bool = False, # Privacy setting - defaults to private
     metadata: dict | None = None
@@ -516,7 +523,7 @@ async def create_model_record(
         status: Initial status of the record (defaults to 'pending').
         ai_service_task_id: Optional ID from the AI service.
         source_input_asset_id: Optional ID of the input_asset used directly.
-        source_concept_image_id: Optional ID of the concept_image record used as source.
+        source_image_id: Optional ID of the image record used as source.
         asset_url: Asset URL (defaults to "pending" placeholder since DB requires NOT NULL).
         is_public: Privacy setting - defaults to private.
         metadata: Optional additional metadata.
@@ -545,8 +552,8 @@ async def create_model_record(
         insert_data["ai_service_task_id"] = ai_service_task_id
     if source_input_asset_id is not None:
         insert_data["source_input_asset_id"] = source_input_asset_id
-    if source_concept_image_id is not None:
-        insert_data["source_concept_image_id"] = source_concept_image_id
+    if source_image_id is not None:
+        insert_data["source_image_id"] = source_image_id
     if metadata is not None:
         insert_data["metadata"] = metadata
 
@@ -578,28 +585,28 @@ async def create_model_record(
             detail=f"An unexpected error occurred while creating model record: {str(e)}"
         )
 
-async def get_concept_image_record_by_id(concept_image_id: str) -> dict | None:
-    """Retrieves a concept image record from the concept_images table by its ID.
+async def get_image_record_by_id(image_id: str) -> dict | None:
+    """Retrieves an image record from the images table by its ID.
 
     Args:
-        concept_image_id: The ID of the concept image record to retrieve.
+        image_id: The ID of the image record to retrieve.
 
     Returns:
-        The concept image record data from Supabase, or None if not found.
+        The image record data from Supabase, or None if not found.
 
     Raises:
         HTTPException: 
             - 502 if there's an error communicating with Supabase.
             - 500 for other unexpected errors.
     """
-    table_name = settings.concept_images_table_name
+    table_name = settings.images_table_name
 
     try:
         def _get_sync():
             response = (
                 supabase_client.table(table_name)
                 .select("*")
-                .eq("id", concept_image_id)
+                .eq("id", image_id)
                 .execute()
             )
             if response.data and len(response.data) > 0:
@@ -612,13 +619,13 @@ async def get_concept_image_record_by_id(concept_image_id: str) -> dict | None:
     except httpx.HTTPStatusError as e:
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to retrieve concept image record from Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
+            detail=f"Failed to retrieve image record from Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
         )
     except Exception as e:
-        # logger.error(f"Unexpected error retrieving concept image from Supabase: {e}")
+        # logger.error(f"Unexpected error retrieving image from Supabase: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected error occurred while retrieving concept image record: {str(e)}"
+            detail=f"An unexpected error occurred while retrieving image record: {str(e)}"
         )
 
 # Functions for Supabase interactions will be added here 

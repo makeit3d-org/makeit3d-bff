@@ -52,15 +52,15 @@ def sync_upload_image_to_storage(file_name: str, image_data: bytes, bucket_name:
         logger.error(f"SYNC: Error uploading to Supabase Storage: {e}", exc_info=True)
         raise SupabaseStorageError(f"SYNC: Failed to upload {file_name} to Supabase Storage: {e}") from e
 
-def sync_create_concept_image_record(
+def sync_create_image_record(
     task_id: str,
     image_url: str, # BFF download URL
-    bucket_name: str = "concept-images",
+    bucket_name: str = "images",  # Updated default bucket name
     prompt: str | None = None,
     style: str | None = None,
 ):
     """
-    Synchronously inserts a record for a generated concept image into the database.
+    Synchronously inserts a record for a generated image into the database.
     Args:
         task_id: The associated BFF task ID.
         image_url: The URL (BFF download URL) for the image.
@@ -77,22 +77,22 @@ def sync_create_concept_image_record(
         "style": style,
     }
     try:
-        response = supabase.table("concept_images").insert([data]).execute()
+        response = supabase.table("images").insert([data]).execute()  # Updated table name
         if response.data:
-            logger.info(f"SYNC: Successfully inserted concept image record: {response.data}")
+            logger.info(f"SYNC: Successfully inserted image record: {response.data}")
             return response.data # Return the inserted data
         elif hasattr(response, 'error') and response.error:
-            logger.error(f"SYNC: Error inserting concept image record: {response.error}")
+            logger.error(f"SYNC: Error inserting image record: {response.error}")
             raise SupabaseDBError(f"SYNC: Database insert error: {response.error.message if hasattr(response.error, 'message') else str(response.error)}")
         else: # Should not happen if execute() is called, but as a safeguard
-            logger.error(f"SYNC: Unknown error inserting concept image record. Response: {response}")
+            logger.error(f"SYNC: Unknown error inserting image record. Response: {response}")
             raise SupabaseDBError(f"SYNC: Unknown database insert error.")
     except Exception as e:
-        logger.error(f"SYNC: Error creating concept image record: {e}", exc_info=True)
+        logger.error(f"SYNC: Error creating image record: {e}", exc_info=True)
         # If it's already a SupabaseDBError from above, re-raise it, otherwise wrap it.
         if isinstance(e, SupabaseDBError):
             raise
-        raise SupabaseDBError(f"SYNC: Failed to create concept image record: {e}") from e
+        raise SupabaseDBError(f"SYNC: Failed to create image record: {e}") from e
 
 
 def sync_download_image_from_storage(file_path: str, bucket_name: str = "concept-images") -> bytes:
