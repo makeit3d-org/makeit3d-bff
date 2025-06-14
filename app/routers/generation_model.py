@@ -67,7 +67,7 @@ async def generate_text_to_model_endpoint(request: Request, request_data: TextTo
         await supabase_handler.update_model_record(
             task_id=request_data.task_id,
             model_id=model_db_id,
-            celery_task_id=celery_task.id,
+            ai_service_task_id=celery_task.id,
             status="processing"
         )
 
@@ -97,9 +97,9 @@ async def generate_image_to_model_endpoint(request: Request, request_data: Image
         original_filenames = []
         for url in request_data.input_image_asset_urls:
             try:
-                img_bytes, original_filename = await supabase_handler.fetch_asset_from_storage(url)
+                img_bytes = await supabase_handler.fetch_asset_from_storage(url)
                 image_bytes_list.append(img_bytes)
-                original_filenames.append(original_filename or url.split('/')[-1])
+                original_filenames.append(url.split('/')[-1])
             except HTTPException as e:
                 logger.error(f"Failed to fetch image {url} for task {request_data.task_id}: {e.detail}")
                 raise
@@ -173,7 +173,8 @@ async def refine_model_endpoint(request: Request, request_data: RefineModelReque
 
     try:
         # Fetch the input model from Supabase
-        model_bytes, original_filename = await supabase_handler.fetch_asset_from_storage(request_data.input_model_asset_url)
+        model_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_model_asset_url)
+        original_filename = request_data.input_model_asset_url.split('/')[-1]
         
         # Create the record in models table before dispatching the task
         db_record = await supabase_handler.create_model_record(

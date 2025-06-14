@@ -312,7 +312,7 @@ This section outlines the sequence of operations for each test in `test_endpoint
    - `test_generate_image_inpaint` - Recraft AI (inpainting)
 
 5. **Advanced Feature Tests**
-   - `test_image_to_model_relationship_tracking` - Verifies linking between 2D images and 3D models
+   
 
 ### Standalone Tests
 6. **Search and Recolor Test**

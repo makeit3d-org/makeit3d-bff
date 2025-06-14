@@ -454,7 +454,7 @@ async def test_generate_text_to_image_recraft(request):
         "provider": "recraft",
         "prompt": prompt,
         "style": "digital_illustration",
-        "substyle": "cyberpunk",
+        "substyle": "hand_drawn",
         "n": 1,
         "size": "1024x1024"
     }
@@ -615,7 +615,7 @@ async def test_generate_remove_background_recraft(request):
         "task_id": client_task_id,
         "provider": "recraft",
         "input_image_asset_url": input_supabase_url,
-        "response_format": "png"
+        "response_format": "url"  # Recraft expects "url" or "b64_json", not "png"
     }
 
     async with httpx.AsyncClient(timeout=60.0) as client:
@@ -783,7 +783,10 @@ async def test_generate_image_inpaint(request):
     step_start_time = time.time()
     print("📥 Downloading and uploading input image...")
     try:
-        input_image_bytes = await download_file(public_image_url, "input_image", "png")
+        input_image_path, download_time = await download_file(public_image_url, "input_image", "png")
+        # Read the file content as bytes
+        with open(input_image_path, "rb") as f:
+            input_image_bytes = f.read()
         input_image_supabase_url = await supabase_handler.upload_asset_to_storage(
             task_id=client_task_id,
             asset_type_plural="test_inputs",
@@ -799,15 +802,89 @@ async def test_generate_image_inpaint(request):
         print(f"❌ Failed to upload input image: {e}")
         raise
     
-    # 2. Download and upload mask image to test storage
+    # 2. Create a simple grayscale mask matching the input image dimensions
     step_start_time = time.time()
-    print("📥 Downloading and uploading mask image...")
+    print("📥 Creating a simple grayscale mask for Recraft...")
     try:
-        mask_image_bytes = await download_file(public_mask_url, "mask_image", "png")
+        # First, get the dimensions of the input image
+        import struct
+        import zlib
+        
+        def get_png_dimensions(png_bytes):
+            """Extract width and height from PNG file bytes"""
+            # PNG signature is 8 bytes, then IHDR chunk
+            # IHDR chunk: 4 bytes length + 4 bytes "IHDR" + 4 bytes width + 4 bytes height + ...
+            if len(png_bytes) < 24:
+                return 512, 512  # Default fallback
+            
+            # Check PNG signature
+            if png_bytes[:8] != b'\x89PNG\r\n\x1a\n':
+                return 512, 512  # Default fallback
+            
+            # Read IHDR chunk (should be first chunk after signature)
+            width = struct.unpack(">I", png_bytes[16:20])[0]
+            height = struct.unpack(">I", png_bytes[20:24])[0]
+            return width, height
+        
+        # Get input image dimensions
+        img_width, img_height = get_png_dimensions(input_image_bytes)
+        print(f"📐 Input image dimensions: {img_width}x{img_height}")
+        
+        def create_simple_grayscale_mask(width, height):
+            """Create a simple PNG mask with a white circle on black background"""
+            # Create grayscale image data (1 byte per pixel)
+            image_data = bytearray()
+            center_x, center_y = width // 2, height // 2
+            radius = min(width, height) // 4  # Circle radius
+            
+            for y in range(height):
+                row_data = bytearray()
+                for x in range(width):
+                    # Calculate distance from center
+                    distance = ((x - center_x) ** 2 + (y - center_y) ** 2) ** 0.5
+                    # White (255) inside circle, black (0) outside
+                    pixel_value = 255 if distance <= radius else 0
+                    row_data.append(pixel_value)
+                image_data.extend(row_data)
+            
+            # Create PNG file structure
+            def write_png(width, height, pixels):
+                def write_chunk(chunk_type, data):
+                    chunk_data = chunk_type + data
+                    crc = zlib.crc32(chunk_data) & 0xffffffff
+                    return struct.pack(">I", len(data)) + chunk_data + struct.pack(">I", crc)
+                
+                # PNG signature
+                png_data = b'\x89PNG\r\n\x1a\n'
+                
+                # IHDR chunk
+                ihdr = struct.pack(">2I5B", width, height, 8, 0, 0, 0, 0)  # 8-bit grayscale
+                png_data += write_chunk(b'IHDR', ihdr)
+                
+                # IDAT chunk (compressed image data)
+                # Add filter byte (0) at the start of each row
+                filtered_data = bytearray()
+                for y in range(height):
+                    filtered_data.append(0)  # No filter
+                    filtered_data.extend(pixels[y * width:(y + 1) * width])
+                
+                compressed_data = zlib.compress(filtered_data)
+                png_data += write_chunk(b'IDAT', compressed_data)
+                
+                # IEND chunk
+                png_data += write_chunk(b'IEND', b'')
+                
+                return png_data
+            
+            return write_png(width, height, image_data)
+        
+        # Create the mask with matching dimensions
+        mask_image_bytes = create_simple_grayscale_mask(img_width, img_height)
+        
         mask_image_supabase_url = await supabase_handler.upload_asset_to_storage(
             task_id=client_task_id,
             asset_type_plural="test_inputs",
-            file_name="mask_image.png",
+            file_name="simple_mask.png",
             asset_data=mask_image_bytes,
             content_type="image/png"
         )
@@ -882,7 +959,10 @@ async def test_generate_image_inpaint(request):
     print("📥 Downloading generated image...")
     
     try:
-        generated_image_bytes = await download_file(asset_url, "generated_inpaint", "png")
+        generated_image_path, download_time = await download_file(asset_url, "generated_inpaint", "png")
+        # Read the file content as bytes for size check
+        with open(generated_image_path, "rb") as f:
+            generated_image_bytes = f.read()
         
         if len(generated_image_bytes) < 1000:  # Basic size check
             raise Exception(f"Generated image seems too small: {len(generated_image_bytes)} bytes")

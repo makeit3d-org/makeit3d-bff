@@ -3,6 +3,7 @@ import time
 import uuid
 import httpx
 import os
+import asyncio
 
 # Import all shared helpers and utilities
 from .test_helpers import (
@@ -50,18 +51,39 @@ async def test_generate_text_to_model(request):
     print(f"🆔 Celery Task ID: {celery_task_id}")
     logger.info(f"Received Celery task_id: {celery_task_id}")
 
-    # Poll for task completion and get result URL
+    # Wait for Celery task completion (Tripo polling is handled internally by the Celery task)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "tripoai", total_timeout=300.0)
+    
+    # For Tripo, the Celery task handles the async polling internally and completes when done
+    from app.celery_worker import celery_app
+    celery_result = celery_app.AsyncResult(celery_task_id)
+    
+    # Wait for the task to complete with extended timeout for 3D model generation
+    max_wait_time = 600  # 10 minutes for text-to-model
+    poll_interval = 5    # Check every 5 seconds
+    elapsed_time = 0
+    
+    while not celery_result.ready() and elapsed_time < max_wait_time:
+        await asyncio.sleep(poll_interval)
+        elapsed_time += poll_interval
+        print(f"⏳ Waiting for Tripo text-to-model... {elapsed_time}s elapsed")
+    
+    if not celery_result.ready():
+        raise Exception(f"Tripo task timed out after {max_wait_time} seconds")
+    
+    if celery_result.failed():
+        raise Exception(f"Tripo task failed: {celery_result.info}")
+    
+    task_result_data = celery_result.result
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Tripo AI Processing completed in {ai_processing_time:.2f}s")
     logger.info(f"TASK PROCESSING TIME: {ai_processing_time:.2f}s")
     logger.info(f"Full task_result_data: {task_result_data}")
 
-    model_url = task_result_data.get('asset_url') # Expecting 'asset_url' based on TaskStatusResponse schema
+    model_url = task_result_data.get('result_url') # Celery task returns 'result_url'
 
-    assert model_url is not None, f"Model asset_url not found in response: {task_result_data}"
+    assert model_url is not None, f"Model result_url not found in response: {task_result_data}"
     logger.info(f"Received model Supabase URL: {model_url}")
 
     # Download the generated model
@@ -154,17 +176,37 @@ async def test_generate_image_to_model(request):
     print(f"🆔 Celery Task ID: {celery_task_id}")
     logger.info(f"Received Celery task_id: {celery_task_id}")
 
-    # Poll for task completion
+    # Wait for Celery task completion (Tripo polling is handled internally by the Celery task)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "tripoai", total_timeout=300.0)
+    
+    from app.celery_worker import celery_app
+    celery_result = celery_app.AsyncResult(celery_task_id)
+    
+    # Wait for the task to complete with extended timeout for 3D model generation
+    max_wait_time = 600  # 10 minutes for image-to-model
+    poll_interval = 5    # Check every 5 seconds
+    elapsed_time = 0
+    
+    while not celery_result.ready() and elapsed_time < max_wait_time:
+        await asyncio.sleep(poll_interval)
+        elapsed_time += poll_interval
+        print(f"⏳ Waiting for Tripo image-to-model... {elapsed_time}s elapsed")
+    
+    if not celery_result.ready():
+        raise Exception(f"Tripo task timed out after {max_wait_time} seconds")
+    
+    if celery_result.failed():
+        raise Exception(f"Tripo task failed: {celery_result.info}")
+    
+    task_result_data = celery_result.result
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Tripo AI Processing completed in {ai_processing_time:.2f}s")
     logger.info(f"TASK PROCESSING TIME: {ai_processing_time:.2f}s")
 
-    model_url = task_result_data.get('asset_url')
+    model_url = task_result_data.get('result_url') or task_result_data.get('asset_url')  # Support both field names
 
-    assert model_url is not None, f"Model asset_url not found in response: {task_result_data}"
+    assert model_url is not None, f"Model URL not found in response: {task_result_data}"
     logger.info(f"Received model Supabase URL: {model_url}")
 
     # Download the generated model
@@ -235,7 +277,7 @@ async def test_generate_image_to_model_stability(request):
         "prompt": "High quality 3D model",
         "texture_resolution": 1024,
         "remesh": "quad",
-        "foreground_ratio": 0.85
+        "foreground_ratio": 1.0  # Must be >= 1.0 according to Stability API
     }
 
     async with httpx.AsyncClient() as client:
@@ -255,8 +297,8 @@ async def test_generate_image_to_model_stability(request):
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
 
-    model_url = task_result_data.get('asset_url')
-    assert model_url is not None, f"Model asset_url not found in response: {task_result_data}"
+    model_url = task_result_data.get('result_url') or task_result_data.get('asset_url')  # Support both field names
+    assert model_url is not None, f"Model URL not found in response: {task_result_data}"
 
     # Download the generated model
     model_file_path, model_download_time = await download_file(model_url, request.node.name, "stability_model.glb")
@@ -366,17 +408,37 @@ async def test_generate_multiview_to_model(request):
     print(f"🆔 Celery Task ID: {celery_task_id}")
     logger.info(f"Received Celery task_id: {celery_task_id}")
 
-    # Poll for task completion with extended timeout for multiview processing
+    # Wait for Celery task completion (Tripo polling is handled internally by the Celery task)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "tripoai", total_timeout=600.0)  # Extended timeout
+    
+    from app.celery_worker import celery_app
+    celery_result = celery_app.AsyncResult(celery_task_id)
+    
+    # Wait for the task to complete with extended timeout for multiview processing
+    max_wait_time = 900  # 15 minutes for multiview (longer than single image)
+    poll_interval = 5    # Check every 5 seconds
+    elapsed_time = 0
+    
+    while not celery_result.ready() and elapsed_time < max_wait_time:
+        await asyncio.sleep(poll_interval)
+        elapsed_time += poll_interval
+        print(f"⏳ Waiting for Tripo multiview processing... {elapsed_time}s elapsed")
+    
+    if not celery_result.ready():
+        raise Exception(f"Tripo multiview task timed out after {max_wait_time} seconds")
+    
+    if celery_result.failed():
+        raise Exception(f"Tripo multiview task failed: {celery_result.info}")
+    
+    task_result_data = celery_result.result
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Tripo AI Multiview Processing completed in {ai_processing_time:.2f}s")
     logger.info(f"TASK PROCESSING TIME (multiview): {ai_processing_time:.2f}s")
 
-    model_url = task_result_data.get('asset_url')
+    model_url = task_result_data.get('result_url') or task_result_data.get('asset_url')  # Support both field names
 
-    assert model_url is not None, f"Model asset_url not found in response: {task_result_data}"
+    assert model_url is not None, f"Model URL not found in response: {task_result_data}"
     logger.info(f"Received multiview model Supabase URL: {model_url}")
 
     # Download the generated multiview model

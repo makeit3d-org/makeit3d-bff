@@ -265,7 +265,7 @@ def print_test_summary(test_name: str, client_task_id: str, start_time: float, t
     print("\n⏱️  EXECUTION TIMES:")
     print(f"   Total Test Time: {total_time:.2f}s")
     for phase, duration in timings.items():
-        print(f"   {phase}: {duration:.2f}s")
+        print(f"   {phase}: {duration}")
     
     # File locations
     print("\n📁 FILE LOCATIONS:")

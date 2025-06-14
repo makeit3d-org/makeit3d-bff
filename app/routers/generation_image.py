@@ -227,7 +227,7 @@ async def generate_sketch_to_image_endpoint(request: Request, request_data: Sket
 
     # Fetch the image from Supabase first
     try:
-        image_bytes, original_filename = await supabase_handler.fetch_asset_from_storage(request_data.input_sketch_asset_url)
+        image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_sketch_asset_url)
         if not image_bytes:
             raise HTTPException(status_code=404, detail="Failed to fetch input sketch from Supabase for async mode.")
     except HTTPException as e:
@@ -289,7 +289,7 @@ async def remove_background_endpoint(request: Request, request_data: RemoveBackg
 
     # Fetch the image from Supabase first
     try:
-        image_bytes, original_filename = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
+        image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
         if not image_bytes:
             raise HTTPException(status_code=404, detail="Failed to fetch input image from Supabase for async mode.")
     except HTTPException as e:
@@ -360,8 +360,8 @@ async def image_inpaint_endpoint(request: Request, request_data: ImageInpaintReq
 
     # Fetch the image from Supabase first
     try:
-        image_bytes, original_filename = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
-        mask_bytes, mask_filename = await supabase_handler.fetch_asset_from_storage(request_data.input_mask_asset_url)
+        image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
+        mask_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_mask_asset_url)
         logger.info(f"Successfully fetched input image and mask for async Recraft inpaint task {request_data.task_id}")
     except HTTPException as e:
         logger.error(f"Failed to fetch input assets from Supabase for async task {request_data.task_id}: {e.detail}")
@@ -380,7 +380,7 @@ async def image_inpaint_endpoint(request: Request, request_data: ImageInpaintReq
         logger.info(f"Created image record {image_db_id} for image-inpaint task {request_data.task_id}")
 
         # Use Recraft image task with inpaint operation
-        from app.tasks.generation_tasks import generate_recraft_image_task
+        from app.tasks.generation_image_tasks import generate_recraft_image_task
         
         # We need to pass both image and mask bytes - we'll modify the task to handle this
         # For now, we'll pass the mask bytes in the metadata and handle it in the task
@@ -426,7 +426,7 @@ async def search_and_recolor_endpoint(request: Request, request_data: SearchAndR
 
     # Fetch the image from Supabase first
     try:
-        image_bytes, original_filename = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
+        image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
         logger.info(f"Successfully fetched input image for async search-and-recolor task {operation_id}")
     except HTTPException as e:
         logger.error(f"Failed to fetch input image from Supabase for async task {operation_id}: {e.detail}")
