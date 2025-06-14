@@ -71,7 +71,7 @@ async def download_file(url: str, test_name: str, file_suffix: str):
             
         except httpx.HTTPStatusError as e:
             # If we get 401/403 and this looks like our Supabase URL, try authenticated download
-            if e.response.status_code in [401, 403] and settings.supabase_url in url:
+            if e.response.status_code in [401, 403] and settings.SUPABASE_URL in url:
                 logger.info(f"HTTP {e.response.status_code} error for Supabase URL, trying authenticated download...")
                 try:
                     file_content = await supabase_handler.fetch_asset_from_storage(url)

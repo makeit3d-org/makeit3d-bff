@@ -1,18 +1,19 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    tripo_api_key: str
-    openai_api_key: str
-    stability_api_key: str
-    recraft_api_key: str
-    flux_api_key: str
+    TRIPO_API_KEY: str
+    OPENAI_API_KEY: str
+    STABILITY_API_KEY: str
+    RECRAFT_API_KEY: str
+    REPLICATE_API_KEY: str
+    FLUX_API_KEY: str
     redis_url: str = "redis://localhost:6379/0" # Default Redis URL
-    bff_base_url: str # Add setting for BFF base URL
+    BFF_BASE_URL: str # Add setting for BFF base URL
     test_assets_mode: bool = False # Controls Supabase storage paths: test_outputs/ vs production paths
 
     # Supabase Configuration
-    supabase_url: str
-    supabase_service_key: str
+    SUPABASE_URL: str
+    SUPABASE_SERVICE_KEY: str
     input_assets_table_name: str = "input_assets"
     images_table_name: str = "images"
     models_table_name: str = "models"
@@ -38,6 +39,6 @@ class Settings(BaseSettings):
 
     # Removed Celery Task Rate Limiting strings for Tripo, as concurrency is now handled by worker counts.
 
-    model_config = SettingsConfigDict(env_file='.env', extra='ignore')
+    model_config = SettingsConfigDict(env_file=None, case_sensitive=False, extra='ignore')
 
 settings = Settings() 

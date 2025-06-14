@@ -4,12 +4,12 @@ import asyncio
 import httpx
 from typing import Dict, Any
 
-from app.celery_worker import celery_app
-from app.ai_clients import openai_client
-from app.ai_clients.stability_client import stability_client
-from app.ai_clients.recraft_client import recraft_client
-from app.ai_clients import flux_client
-from app.schemas.generation_schemas import (
+from celery_worker import celery_app
+from ai_clients import openai_client
+from ai_clients.stability_client import stability_client
+from ai_clients.recraft_client import recraft_client
+from ai_clients import flux_client
+from schemas.generation_schemas import (
     ImageToImageRequest,
     TextToImageRequest,
     SketchToImageRequest,
@@ -17,8 +17,8 @@ from app.schemas.generation_schemas import (
     ImageInpaintRequest,
     SearchAndRecolorRequest
 )
-from app.config import settings
-import app.supabase_handler as supabase_handler
+from config import settings
+import supabase_handler
 
 logger = logging.getLogger(__name__)
 

@@ -6,8 +6,8 @@ import asyncio
 from typing import Dict, Any, Optional
 import logging
 
-from app.config import settings
-from app.schemas.generation_schemas import (
+from config import settings
+from schemas.generation_schemas import (
     ImageToImageRequest,
     TextToImageRequest
 )
@@ -37,7 +37,7 @@ async def generate_image_to_image_flux(
     
     url = f"{FLUX_API_BASE_URL}/flux-kontext-pro"
     headers = {
-        "x-key": settings.flux_api_key,
+        "x-key": settings.FLUX_API_KEY,
         "Content-Type": "application/json"
     }
     
@@ -96,7 +96,7 @@ async def generate_text_to_image_flux(request_model: TextToImageRequest) -> Dict
     # For now, I'll implement this as a placeholder since the test was image-to-image
     url = f"{FLUX_API_BASE_URL}/flux-pro"  # This might be different
     headers = {
-        "x-key": settings.flux_api_key,
+        "x-key": settings.FLUX_API_KEY,
         "Content-Type": "application/json"
     }
     
@@ -147,7 +147,7 @@ async def poll_flux_task_status(polling_url: str) -> Dict[str, Any]:
         Dict containing status and result data
     """
     headers = {
-        "x-key": settings.flux_api_key
+        "x-key": settings.FLUX_API_KEY
     }
     
     logger.info(f"Polling Flux task status: {polling_url}")

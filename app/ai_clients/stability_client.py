@@ -2,13 +2,13 @@ import httpx
 import logging
 from typing import Dict, Any, Optional, List
 from io import BytesIO
-from app.config import settings
+from config import settings
 
 logger = logging.getLogger(__name__)
 
 class StabilityClient:
     def __init__(self):
-        self.api_key = settings.stability_api_key
+        self.api_key = settings.STABILITY_API_KEY
         self.base_url = "https://api.stability.ai"
         
     async def image_to_image(

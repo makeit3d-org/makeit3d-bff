@@ -2,6 +2,8 @@ import os
 from supabase import create_client, Client
 import logging # Import logging
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
 # Custom Supabase specific exceptions
@@ -18,13 +20,12 @@ class SupabaseDBError(SupabaseError):
     pass
 
 def get_supabase_client() -> Client:
-    """Initializes and returns a Supabase client instance."""
-    url: str = os.environ.get("SUPABASE_URL")
-    key: str = os.environ.get("SUPABASE_SERVICE_KEY") # Use service key for backend operations
+    """Initializes and returns a Supabase client instance using settings from config."""
+    url: str = settings.SUPABASE_URL
+    key: str = settings.SUPABASE_SERVICE_KEY
     if not url or not key:
-        # In a real app, you'd handle this missing config more robustly
-        logger.error("Supabase URL or Service Key not found in environment variables.")
-        raise ValueError("Supabase URL and Service Key must be set.")
+        logger.error("Supabase URL or Service Key not configured.")
+        raise ValueError("Supabase URL and Service Key must be set in the configuration.")
     return create_client(url, key)
 
 

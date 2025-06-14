@@ -7,7 +7,7 @@ import logging
 TEST_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 # Explicitly import required schemas from the module (model-related only)
-from app.schemas.generation_schemas import (
+from schemas.generation_schemas import (
     TextToModelRequest,
     ImageToModelRequest,
     RefineModelRequest,
@@ -15,13 +15,13 @@ from app.schemas.generation_schemas import (
 )
 
 # Import configuration and dependencies
-from app.config import settings # Import settings
-from app.limiter import limiter # Import the limiter
+from config import settings # Import settings
+from limiter import limiter # Import the limiter
 
-import app.supabase_handler as supabase_handler # New Supabase handler
+import supabase_handler # New Supabase handler
 
 # Import only model-related tasks
-from app.tasks.generation_model_tasks import (
+from tasks.generation_model_tasks import (
     generate_tripo_text_to_model_task,
     generate_tripo_image_to_model_task,
     generate_tripo_refine_model_task,

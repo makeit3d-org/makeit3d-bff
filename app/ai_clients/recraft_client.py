@@ -2,13 +2,13 @@ import httpx
 import logging
 from typing import Dict, Any, Optional, List
 from io import BytesIO
-from app.config import settings
+from config import settings
 
 logger = logging.getLogger(__name__)
 
 class RecraftClient:
     def __init__(self):
-        self.api_key = settings.recraft_api_key
+        self.api_key = settings.RECRAFT_API_KEY
         self.base_url = "https://external.api.recraft.ai"
         
     async def create_custom_style(

@@ -1,10 +1,10 @@
 import logging
 from fastapi import APIRouter, HTTPException, Query
-from app.celery_worker import celery_app # To get AsyncResult
-from app.schemas.generation_schemas import TaskStatusResponse # Define or reuse an appropriate response schema
-import app.supabase_handler as supabase_handler
-from app.ai_clients import tripo_client
-from app.config import settings
+from celery_worker import celery_app # To get AsyncResult
+from schemas.generation_schemas import TaskStatusResponse # Define or reuse an appropriate response schema
+import supabase_handler
+from ai_clients import tripo_client
+from config import settings
 import httpx
 import base64 # For OpenAI, though asset is already stored by task. For Tripo, to decode if needed.
 from concurrent.futures import ThreadPoolExecutor
@@ -124,8 +124,8 @@ async def get_task_status_endpoint(
                     
                     try:
                         # Get the model record from database which should have the final asset URL
-                        from app.supabase_handler import supabase_client
-                        from app.config import settings
+                        from supabase_handler import supabase_client
+                        from config import settings
                         
                         def get_model_record():
                             response = supabase_client.table(settings.models_table_name).select("*").eq("id", db_record_id).execute()

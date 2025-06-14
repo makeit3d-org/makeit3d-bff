@@ -3,16 +3,16 @@ import asyncio
 import httpx
 from typing import Dict, Any, List
 
-from app.celery_worker import celery_app
-from app.ai_clients import tripo_client
-from app.ai_clients.stability_client import stability_client
-from app.schemas.generation_schemas import (
+from celery_worker import celery_app
+from ai_clients import tripo_client
+from ai_clients.stability_client import stability_client
+from schemas.generation_schemas import (
     TextToModelRequest,
     ImageToModelRequest,
     RefineModelRequest
 )
-from app.config import settings
-import app.supabase_handler as supabase_handler
+from config import settings
+import supabase_handler
 
 logger = logging.getLogger(__name__)
 

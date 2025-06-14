@@ -4,8 +4,8 @@ import logging
 import json
 import base64
 
-from app.config import settings
-from app.schemas.generation_schemas import (
+from config import settings
+from schemas.generation_schemas import (
     TextToModelRequest,
     ImageToModelRequest,
     RefineModelRequest
@@ -20,7 +20,7 @@ async def call_tripo_task_api(task_type: str, payload: Dict[str, Any]) -> Dict[s
     """Generic function to call the Tripo AI /v2/openapi/task endpoint according to V2 API docs."""
     url = f"{TRIPO_API_BASE_URL_V2}/openapi/task"
     headers = {
-        "Authorization": f"Bearer {settings.tripo_api_key}",
+        "Authorization": f"Bearer {settings.TRIPO_API_KEY}",
         "Content-Type": "application/json"
     }
     
@@ -224,7 +224,7 @@ async def poll_tripo_task_status(task_id: str) -> Dict[str, Any]:
     """Polls Tripo AI for the status of a task according to V2 API documentation."""
     url = f"{TRIPO_API_BASE_URL_V2}/openapi/task/{task_id}"
     headers = {
-        "Authorization": f"Bearer {settings.tripo_api_key}"
+        "Authorization": f"Bearer {settings.TRIPO_API_KEY}"
     }
 
     logger.info(f"Polling Tripo AI task status for ID: {task_id}")

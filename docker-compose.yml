@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7.2-alpine
@@ -15,9 +13,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: makeit3d-bff-backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
-      - .:/app  # Mount the current directory to /app inside the container for hot-reloading
+      - ./app:/app  # Mount the app directory to /app inside the container for hot-reloading
     ports:
       - "8000:8000"
     environment:
@@ -25,6 +23,10 @@ services:
       # In a real scenario, use a proper secrets management solution
       - TRIPO_API_KEY=${TRIPO_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STABILITY_API_KEY=${STABILITY_API_KEY}
+      - RECRAFT_API_KEY=${RECRAFT_API_KEY}
+      - REPLICATE_API_KEY=${REPLICATE_API_KEY}
+      - FLUX_API_KEY=${FLUX_API_KEY}
       - DATABASE_URL=${DATABASE_URL}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
@@ -39,12 +41,16 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: makeit3d-bff-celery_default_worker
-    command: celery -A app.celery_worker worker -l info -P eventlet -c 1 -Q default
+    command: celery -A celery_worker worker -l info -P eventlet -c 1 -Q default
     volumes:
-      - .:/app
+      - ./app:/app
     environment:
       - TRIPO_API_KEY=${TRIPO_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STABILITY_API_KEY=${STABILITY_API_KEY}
+      - RECRAFT_API_KEY=${RECRAFT_API_KEY}
+      - REPLICATE_API_KEY=${REPLICATE_API_KEY}
+      - FLUX_API_KEY=${FLUX_API_KEY}
       - DATABASE_URL=${DATABASE_URL}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
@@ -59,12 +65,16 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: makeit3d-bff-celery_tripo_other_worker
-    command: celery -A app.celery_worker worker -l info -P eventlet -c 10 -Q tripo_other_queue
+    command: celery -A celery_worker worker -l info -P eventlet -c 10 -Q tripo_other_queue
     volumes:
-      - .:/app
+      - ./app:/app
     environment:
       - TRIPO_API_KEY=${TRIPO_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STABILITY_API_KEY=${STABILITY_API_KEY}
+      - RECRAFT_API_KEY=${RECRAFT_API_KEY}
+      - REPLICATE_API_KEY=${REPLICATE_API_KEY}
+      - FLUX_API_KEY=${FLUX_API_KEY}
       - DATABASE_URL=${DATABASE_URL}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
@@ -79,12 +89,16 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: makeit3d-bff-celery_tripo_refine_worker
-    command: celery -A app.celery_worker worker -l info -P eventlet -c 5 -Q tripo_refine_queue
+    command: celery -A celery_worker worker -l info -P eventlet -c 5 -Q tripo_refine_queue
     volumes:
-      - .:/app
+      - ./app:/app
     environment:
       - TRIPO_API_KEY=${TRIPO_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STABILITY_API_KEY=${STABILITY_API_KEY}
+      - RECRAFT_API_KEY=${RECRAFT_API_KEY}
+      - REPLICATE_API_KEY=${REPLICATE_API_KEY}
+      - FLUX_API_KEY=${FLUX_API_KEY}
       - DATABASE_URL=${DATABASE_URL}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}

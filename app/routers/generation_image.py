@@ -8,7 +8,7 @@ import base64
 TEST_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 # Explicitly import required schemas from the module (image-related only)
-from app.schemas.generation_schemas import (
+from schemas.generation_schemas import (
     ImageToImageRequest,
     TextToImageRequest,
     SketchToImageRequest,
@@ -19,16 +19,16 @@ from app.schemas.generation_schemas import (
 )
 
 # Import client functions for asynchronous mode (image-related only)
-from app.ai_clients import openai_client
-from app.ai_clients.stability_client import stability_client
-from app.ai_clients.recraft_client import recraft_client
-from app.config import settings # Import settings
-from app.limiter import limiter # Import the limiter
+from ai_clients import openai_client
+from ai_clients.stability_client import stability_client
+from ai_clients.recraft_client import recraft_client
+from config import settings # Import settings
+from limiter import limiter # Import the limiter
 
-import app.supabase_handler as supabase_handler # New Supabase handler
+import supabase_handler # New Supabase handler
 
 # Import only image-related tasks
-from app.tasks.generation_image_tasks import (
+from tasks.generation_image_tasks import (
     generate_openai_image_task,
     generate_stability_image_task,
     generate_recraft_image_task,
@@ -380,7 +380,7 @@ async def image_inpaint_endpoint(request: Request, request_data: ImageInpaintReq
         logger.info(f"Created image record {image_db_id} for image-inpaint task {request_data.task_id}")
 
         # Use Recraft image task with inpaint operation
-        from app.tasks.generation_image_tasks import generate_recraft_image_task
+        from tasks.generation_image_tasks import generate_recraft_image_task
         
         # We need to pass both image and mask bytes - we'll modify the task to handle this
         # For now, we'll pass the mask bytes in the metadata and handle it in the task

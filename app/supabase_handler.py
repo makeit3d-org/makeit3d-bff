@@ -1,13 +1,12 @@
 from supabase import create_client, Client
-from app.config import settings
+from config import settings
+from supabase_client import get_supabase_client
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 import httpx # For httpx.HTTPStatusError
 import logging
 
 logger = logging.getLogger(__name__)
-
-supabase_client: Client = create_client(settings.supabase_url, settings.supabase_service_key)
 
 def get_asset_folder_path(asset_type_plural: str) -> str:
     """
@@ -76,7 +75,7 @@ async def fetch_asset_from_storage(asset_supabase_url: str) -> bytes:
             - 500 for other unexpected errors.
     """
     try:
-        normalized_supabase_url = settings.supabase_url.rstrip('/')
+        normalized_supabase_url = settings.SUPABASE_URL.rstrip('/')
         
         # Check for both public and signed URL patterns
         public_prefix = normalized_supabase_url + "/storage/v1/object/public/"
@@ -121,7 +120,7 @@ async def fetch_asset_from_storage(asset_supabase_url: str) -> bytes:
 
         # Define a sync wrapper for the Supabase call to run in a threadpool
         def _download_sync():
-            return supabase_client.storage.from_(bucket_name).download(object_path)
+            return get_supabase_client().storage.from_(bucket_name).download(object_path)
 
         response_bytes = await run_in_threadpool(_download_sync)
         return response_bytes
@@ -180,7 +179,7 @@ async def upload_asset_to_storage(
             # Note: Supabase Python client might raise an exception for HTTP errors directly
             # depending on the version and underlying httpx behavior, which simplifies error checking.
             # For this implementation, we will rely on httpx.HTTPStatusError for HTTP errors.
-            return supabase_client.storage.from_(bucket_name).upload(
+            return get_supabase_client().storage.from_(bucket_name).upload(
                 path=storage_path, 
                 file=asset_data, 
                 file_options={"content-type": content_type, "upsert": "true"} # upsert=true to overwrite if exists
@@ -191,7 +190,7 @@ async def upload_asset_to_storage(
         # If no exception was raised, the upload is considered successful.
         # Check if bucket is public to determine URL type
         def _check_bucket_public():
-            buckets = supabase_client.storage.list_buckets()
+            buckets = get_supabase_client().storage.list_buckets()
             for bucket in buckets:
                 if bucket.name == bucket_name:
                     return bucket.public
@@ -199,7 +198,7 @@ async def upload_asset_to_storage(
         
         is_bucket_public = await run_in_threadpool(_check_bucket_public)
         
-        normalized_supabase_url = settings.supabase_url.rstrip('/')
+        normalized_supabase_url = settings.SUPABASE_URL.rstrip('/')
         
         if is_bucket_public:
             # Construct the public URL for public buckets
@@ -208,7 +207,7 @@ async def upload_asset_to_storage(
         else:
             # Create a signed URL for private buckets (expires in 1 hour by default)
             def _create_signed_url():
-                response = supabase_client.storage.from_(bucket_name).create_signed_url(
+                response = get_supabase_client().storage.from_(bucket_name).create_signed_url(
                     path=storage_path, 
                     expires_in=3600  # 1 hour expiration
                 )
@@ -299,7 +298,7 @@ async def update_image_record(
     try:
         def _update_sync():
             response = (
-                supabase_client.table(table_name)
+                get_supabase_client().table(table_name)
                 .update(update_data)
                 .eq("id", image_id)
                 .execute()
@@ -387,7 +386,7 @@ async def update_model_record(
     try:
         def _update_sync():
             response = (
-                supabase_client.table(table_name)
+                get_supabase_client().table(table_name)
                 .update(update_data)
                 .eq("id", model_id)
                 .execute()
@@ -471,7 +470,7 @@ async def create_image_record(
     try:
         def _insert_sync():
             response = (
-                supabase_client.table(table_name)
+                get_supabase_client().table(table_name)
                 .insert(insert_data)
                 .execute()
             )
@@ -560,7 +559,7 @@ async def create_model_record(
     try:
         def _insert_sync():
             response = (
-                supabase_client.table(table_name)
+                get_supabase_client().table(table_name)
                 .insert(insert_data)
                 .execute()
             )
@@ -604,7 +603,7 @@ async def get_image_record_by_id(image_id: str) -> dict | None:
     try:
         def _get_sync():
             response = (
-                supabase_client.table(table_name)
+                get_supabase_client().table(table_name)
                 .select("*")
                 .eq("id", image_id)
                 .execute()
@@ -646,7 +645,7 @@ async def get_user_credits(user_id: str) -> dict | None:
     try:
         def _get_sync():
             response = (
-                supabase_client.table("user_credits")
+                get_supabase_client().table("user_credits")
                 .select("*")
                 .eq("user_id", user_id)
                 .execute()
@@ -681,7 +680,7 @@ async def initialize_user_credits(user_id: str) -> dict:
     try:
         def _create_sync():
             response = (
-                supabase_client.table("user_credits")
+                get_supabase_client().table("user_credits")
                 .insert({
                     "user_id": user_id,
                     "credits_balance": 30,
@@ -732,7 +731,7 @@ async def get_operation_cost(operation_key: str) -> dict | None:
     try:
         def _get_sync():
             response = (
-                supabase_client.table("operation_costs")
+                get_supabase_client().table("operation_costs")
                 .select("*")
                 .eq("operation_key", operation_key)
                 .eq("is_active", True)
@@ -799,7 +798,7 @@ async def check_and_deduct_credits(user_id: str, operation_key: str, task_id: st
     try:
         def _update_sync():
             response = (
-                supabase_client.table("user_credits")
+                get_supabase_client().table("user_credits")
                 .update({
                     "credits_balance": new_balance,
                     "updated_at": "now()"
@@ -889,7 +888,7 @@ async def log_credit_transaction(
     try:
         def _insert_sync():
             response = (
-                supabase_client.table("credit_transactions")
+                get_supabase_client().table("credit_transactions")
                 .insert(insert_data)
                 .execute()
             )
@@ -927,7 +926,7 @@ async def get_user_credit_history(user_id: str, limit: int = 50, offset: int = 0
     try:
         def _get_sync():
             response = (
-                supabase_client.table("credit_transactions")
+                get_supabase_client().table("credit_transactions")
                 .select("*")
                 .eq("user_id", user_id)
                 .order("created_at", desc=True)

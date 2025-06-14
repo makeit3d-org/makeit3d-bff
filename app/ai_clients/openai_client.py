@@ -2,8 +2,8 @@ import httpx
 from typing import List, Dict, Any
 import logging
 
-from app.config import settings
-from app.schemas.generation_schemas import ImageToImageRequest, TextToModelRequest
+from config import settings
+from schemas.generation_schemas import ImageToImageRequest, TextToModelRequest
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ async def generate_text_to_image(request_data: TextToModelRequest) -> Dict[str, 
     """Calls OpenAI's image generation API to generate images from text."""
     url = f"{OPENAI_API_BASE_URL}/images/generations"
     headers = {
-        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
         "Content-Type": "application/json"
     }
     data = {
@@ -43,7 +43,7 @@ async def generate_image_to_image(image_file: bytes, filename: str, request_data
     """Calls OpenAI's image edit API to generate concepts."""
     url = f"{OPENAI_API_BASE_URL}/images/edits"
     headers = {
-        "Authorization": f"Bearer {settings.openai_api_key}"
+        "Authorization": f"Bearer {settings.OPENAI_API_KEY}"
     }
     files = {
         "image": (filename, image_file, "image/png"), # Assuming PNG for sketch/image input

@@ -7,8 +7,8 @@ from slowapi.errors import RateLimitExceeded
 import logging
 
 # Import routers - only tasks, generation_image, and generation_model are needed
-from app.routers import tasks, generation_image, generation_model
-from app.config import settings
+from routers import tasks, generation_image, generation_model
+from config import settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

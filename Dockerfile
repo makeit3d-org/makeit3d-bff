@@ -2,6 +2,28 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Declare all the environment variables as build arguments AFTER FROM
+ARG TRIPO_API_KEY
+ARG OPENAI_API_KEY
+ARG STABILITY_API_KEY
+ARG RECRAFT_API_KEY
+ARG REPLICATE_API_KEY
+ARG FLUX_API_KEY
+ARG BFF_BASE_URL
+ARG SUPABASE_URL
+ARG SUPABASE_SERVICE_KEY
+
+# Set them as environment variables for runtime
+ENV TRIPO_API_KEY=$TRIPO_API_KEY
+ENV OPENAI_API_KEY=$OPENAI_API_KEY
+ENV STABILITY_API_KEY=$STABILITY_API_KEY
+ENV RECRAFT_API_KEY=$RECRAFT_API_KEY
+ENV REPLICATE_API_KEY=$REPLICATE_API_KEY
+ENV FLUX_API_KEY=$FLUX_API_KEY
+ENV BFF_BASE_URL=$BFF_BASE_URL
+ENV SUPABASE_URL=$SUPABASE_URL
+ENV SUPABASE_SERVICE_KEY=$SUPABASE_SERVICE_KEY
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -9,4 +31,4 @@ COPY ./app /app
 
 EXPOSE 8000
 
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} 
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"] 

@@ -4,7 +4,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-from app.api import app # Import the FastAPI app instance from app.api
+from api import app # Import the FastAPI app instance from api
 
 # Remove redundant router inclusion and root endpoint from here
 # app.include_router(...)
