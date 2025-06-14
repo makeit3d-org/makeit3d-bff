@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     openai_api_key: str
     stability_api_key: str
     recraft_api_key: str
+    flux_api_key: str
     redis_url: str = "redis://localhost:6379/0" # Default Redis URL
     bff_base_url: str # Add setting for BFF base URL
     test_assets_mode: bool = False # Controls Supabase storage paths: test_outputs/ vs production paths

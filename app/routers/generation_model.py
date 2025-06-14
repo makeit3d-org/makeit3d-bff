@@ -21,10 +21,10 @@ from app.limiter import limiter # Import the limiter
 import app.supabase_handler as supabase_handler # New Supabase handler
 
 # Import only model-related tasks
-from app.tasks.generation_tasks import (
-    generate_tripo_text_to_model_task, 
+from app.tasks.generation_model_tasks import (
+    generate_tripo_text_to_model_task,
     generate_tripo_image_to_model_task,
-    generate_tripo_refine_model_task, 
+    generate_tripo_refine_model_task,
     generate_stability_model_task
 )
 

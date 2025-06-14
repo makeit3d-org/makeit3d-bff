@@ -6,7 +6,7 @@ import os
 
 # Import all shared helpers and utilities
 from .test_helpers import (
-    BASE_URL, logger, download_file, poll_task_status, print_test_summary,
+    BASE_URL, logger, download_file, poll_task_status, wait_for_celery_task, print_test_summary,
     supabase_handler
 )
 
@@ -183,9 +183,9 @@ async def test_generate_image_to_image_stability(request):
     celery_task_id = result["celery_task_id"]
     print(f"🆔 Celery Task ID: {celery_task_id}")
 
-    # Poll for completion
+    # Wait for Celery task completion (Stability is synchronous)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "stability", total_timeout=180.0)
+    task_result_data = await wait_for_celery_task(celery_task_id, "Stability", total_timeout=180.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -264,9 +264,9 @@ async def test_generate_image_to_image_recraft(request):
     celery_task_id = result["celery_task_id"]
     print(f"🆔 Celery Task ID: {celery_task_id}")
 
-    # Poll for completion
+    # Wait for Celery task completion (Recraft is synchronous)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "recraft", total_timeout=180.0)
+    task_result_data = await wait_for_celery_task(celery_task_id, "Recraft", total_timeout=180.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Recraft AI Processing completed in {ai_processing_time:.2f}s")
@@ -404,9 +404,9 @@ async def test_generate_text_to_image_stability(request):
     celery_task_id = result["celery_task_id"]
     print(f"🆔 Celery Task ID: {celery_task_id}")
 
-    # Poll for completion
+    # Wait for Celery task completion (Stability is synchronous)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "stability", total_timeout=120.0)
+    task_result_data = await wait_for_celery_task(celery_task_id, "Stability", total_timeout=120.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -469,9 +469,9 @@ async def test_generate_text_to_image_recraft(request):
     celery_task_id = result["celery_task_id"]
     print(f"🆔 Celery Task ID: {celery_task_id}")
 
-    # Poll for completion
+    # Wait for Celery task completion (Recraft is synchronous)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "recraft", total_timeout=120.0)
+    task_result_data = await wait_for_celery_task(celery_task_id, "Recraft", total_timeout=120.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Recraft AI Processing completed in {ai_processing_time:.2f}s")
@@ -551,9 +551,9 @@ async def test_generate_remove_background_stability(request):
     celery_task_id = result["celery_task_id"]
     print(f"🆔 Celery Task ID: {celery_task_id}")
 
-    # Poll for completion
+    # Wait for Celery task completion (Stability is synchronous)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "stability", total_timeout=120.0)
+    task_result_data = await wait_for_celery_task(celery_task_id, "Stability", total_timeout=120.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -628,9 +628,9 @@ async def test_generate_remove_background_recraft(request):
     celery_task_id = result["celery_task_id"]
     print(f"🆔 Celery Task ID: {celery_task_id}")
 
-    # Poll for completion
+    # Wait for Celery task completion (Recraft is synchronous)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "recraft", total_timeout=120.0)
+    task_result_data = await wait_for_celery_task(celery_task_id, "Recraft", total_timeout=120.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Recraft AI Processing completed in {ai_processing_time:.2f}s")
@@ -720,9 +720,9 @@ async def test_generate_sketch_to_image(request):
     print(f"🆔 Celery Task ID: {celery_task_id}")
     logger.info(f"Received Celery task_id: {celery_task_id}")
 
-    # Poll for task completion
+    # Wait for Celery task completion (Stability is synchronous)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "stability", total_timeout=180.0)
+    task_result_data = await wait_for_celery_task(celery_task_id, "Stability", total_timeout=180.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -970,9 +970,9 @@ async def test_generate_search_and_recolor(request):
     print(f"🆔 Celery Task ID: {celery_task_id}")
     logger.info(f"Received Celery task_id: {celery_task_id}")
 
-    # Poll for completion
+    # Wait for Celery task completion (Stability is synchronous)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "stability", total_timeout=180.0)
+    task_result_data = await wait_for_celery_task(celery_task_id, "Stability", total_timeout=180.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -1019,5 +1019,87 @@ async def test_generate_search_and_recolor(request):
                 "operation": "search_and_recolor"
             }
         }
+    }
+    print_test_summary(request.node.name, client_task_id, start_time, timings, locations)
+
+
+@pytest.mark.asyncio
+async def test_generate_image_to_image_flux(request):
+    """Test 1.4: /generate/image-to-image endpoint (Flux/BFL)."""
+    start_time = time.time()
+    client_task_id = f"test-i2i-flux-{uuid.uuid4()}"
+    
+    print(f"\n🚀 Starting test: {request.node.name}")
+    print(f"📋 Client Task ID: {client_task_id}")
+    logger.info(f"TEST START: {start_time}")
+    
+    endpoint = f"{BASE_URL}/generate/image-to-image"
+    image_to_upload_url = "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-public//portrait-boy.jpg"
+    prompt = "Change the background to a futuristic cityscape at dusk."
+
+    logger.info(f"Running {request.node.name} for task_id: {client_task_id}...")
+
+    # Download and upload input image
+    input_download_start = time.time()
+    async with httpx.AsyncClient() as client:
+        image_response = await client.get(image_to_upload_url)
+        image_response.raise_for_status()
+        image_content = image_response.content
+        original_filename = image_to_upload_url.split("/")[-1]
+    input_download_time = time.time() - input_download_start
+    
+    upload_start = time.time()
+    input_supabase_url = await supabase_handler.upload_asset_to_storage(
+        task_id=client_task_id,
+        asset_type_plural="test_inputs/image-to-image", 
+        file_name=original_filename,
+        asset_data=image_content,
+        content_type="image/jpeg"
+    )
+    upload_time = time.time() - upload_start
+    
+    # Call Flux endpoint
+    request_data = {
+        "task_id": client_task_id,
+        "provider": "flux",
+        "input_image_asset_url": input_supabase_url,
+        "prompt": prompt,
+        # Add any Flux-specific params if needed
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "safety_tolerance": 2
+    }
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        api_call_start = time.time()
+        response = await client.post(endpoint, json=request_data)
+        response.raise_for_status()
+        result = response.json()
+        api_response_time = time.time() - api_call_start
+
+    celery_task_id = result["celery_task_id"]
+    print(f"🆔 Celery Task ID: {celery_task_id}")
+
+    # Wait for Celery task completion (Flux is asynchronous but handled in Celery)
+    polling_start = time.time()
+    task_result_data = await wait_for_celery_task(celery_task_id, "Flux", poll_interval=2, total_timeout=180.0)
+    ai_processing_time = time.time() - polling_start
+    
+    print(f"🤖 Flux AI Processing completed in {ai_processing_time:.2f}s")
+
+    asset_url = task_result_data['asset_url']
+    concept_file_path, concept_download_time = await download_file(asset_url, request.node.name, "flux_concept.png")
+
+    # Test summary
+    timings = {
+        "Input Download": input_download_time,
+        "Input Upload": upload_time,
+        "API Response Time": api_response_time,
+        "Flux AI Processing": ai_processing_time,
+        "Concept Download": concept_download_time
+    }
+    locations = {
+        "supabase_storage": {"input_image_asset_url": input_supabase_url, "concept_asset_url": asset_url},
+        "local_files": {"flux_concept.png": concept_file_path}
     }
     print_test_summary(request.node.name, client_task_id, start_time, timings, locations) 

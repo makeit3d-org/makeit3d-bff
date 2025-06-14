@@ -28,10 +28,11 @@ from app.limiter import limiter # Import the limiter
 import app.supabase_handler as supabase_handler # New Supabase handler
 
 # Import only image-related tasks
-from app.tasks.generation_tasks import (
+from app.tasks.generation_image_tasks import (
     generate_openai_image_task,
     generate_stability_image_task,
-    generate_recraft_image_task
+    generate_recraft_image_task,
+    generate_flux_image_task
 )
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,13 @@ async def generate_image_to_image_endpoint(
             request_data.model_dump(),
             "image_to_image"
         )
+    elif request_data.provider == "flux":
+        celery_task = generate_flux_image_task.delay(
+            image_db_id,
+            base64.b64encode(image_bytes).decode('utf-8'),
+            request_data.model_dump(),
+            "image_to_image"
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported provider: {request_data.provider}")
         
@@ -133,19 +141,10 @@ async def generate_text_to_image_endpoint(request: Request, request_data: TextTo
     user_id_from_auth = TEST_USER_ID
 
     # Validate provider
-    if request_data.provider not in ["openai", "stability", "recraft"]:
-        raise HTTPException(status_code=400, detail="text-to-image supports 'openai', 'stability', and 'recraft' providers")
+    if request_data.provider not in ["openai", "stability", "recraft", "flux"]:
+        raise HTTPException(status_code=400, detail="text-to-image supports 'openai', 'stability', 'recraft', and 'flux' providers")
 
-    # Fetch the image from Supabase first
-    try:
-        image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
-        logger.info(f"Successfully fetched input image for task {request_data.task_id} from: {request_data.input_image_asset_url}")
-    except HTTPException as e:
-        logger.error(f"Failed to fetch image from Supabase for task {request_data.task_id}: {e.detail}")
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error fetching image for task {request_data.task_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve input image.")
+    # For text-to-image, we don't need to fetch an input image
 
     try:
         # Create the record in images table before dispatching the task
@@ -180,6 +179,13 @@ async def generate_text_to_image_endpoint(request: Request, request_data: TextTo
             )
         elif request_data.provider == "recraft":
             celery_task = generate_recraft_image_task.delay(
+                image_db_id,
+                "",  # Empty string for text-to-image
+                request_data.model_dump(),
+                "text_to_image"
+            )
+        elif request_data.provider == "flux":
+            celery_task = generate_flux_image_task.delay(
                 image_db_id,
                 "",  # Empty string for text-to-image
                 request_data.model_dump(),

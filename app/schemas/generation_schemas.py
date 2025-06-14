@@ -26,7 +26,7 @@ class ImageToImageRequest(BaseModel):
     
     """Request schema for image-to-image generation (multi-provider)."""
     task_id: str # Client-generated main task ID
-    provider: Literal["openai", "stability", "recraft"] # AI provider to use
+    provider: Literal["openai", "stability", "recraft", "flux"] # AI provider to use
     input_image_asset_url: str # Supabase URL to the input image
     prompt: str
     
@@ -48,6 +48,11 @@ class ImageToImageRequest(BaseModel):
     model: Optional[str] = "recraftv3" # Recraft model
     response_format: Optional[str] = "url" # Recraft response format
     style_id: Optional[str] = None # Recraft custom style ID
+    
+    # Flux parameters
+    aspect_ratio: Optional[str] = "1:1" # Flux aspect ratio
+    safety_tolerance: Optional[int] = Field(default=2, ge=0, le=6) # Flux safety tolerance
+    prompt_upsampling: Optional[bool] = False # Flux prompt upsampling
 
     @field_validator('background')
     def check_background_value(cls, value: Optional[str]):
@@ -60,7 +65,7 @@ class TextToImageRequest(BaseModel):
     
     """Request schema for text-to-image generation (multi-provider)."""
     task_id: str # Client-generated main task ID
-    provider: Literal["openai", "stability", "recraft"] # AI provider to use
+    provider: Literal["openai", "stability", "recraft", "flux"] # AI provider to use
     prompt: str
     
     # OpenAI parameters
@@ -81,6 +86,12 @@ class TextToImageRequest(BaseModel):
     model: Optional[str] = "recraftv3" # Recraft model
     response_format: Optional[str] = "url" # Recraft response format
     style_id: Optional[str] = None # Recraft custom style ID
+    
+    # Flux parameters (for text-to-image)
+    width: Optional[int] = 1024 # Flux image width
+    height: Optional[int] = 1024 # Flux image height
+    safety_tolerance: Optional[int] = Field(default=2, ge=0, le=6) # Flux safety tolerance
+    prompt_upsampling: Optional[bool] = False # Flux prompt upsampling
 
 class TextToModelRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())

@@ -50,9 +50,9 @@
 
 ## Overview
 
-The MakeIt3D Backend-For-Frontend (BFF) API serves as an intermediary between your mobile app and multiple AI services. It now supports **4 AI providers** across **8 endpoints** with unified parameter handling:
+The MakeIt3D Backend-For-Frontend (BFF) API serves as an intermediary between your mobile app and multiple AI services. It now supports **5 AI providers** across **8 endpoints** with unified parameter handling:
 
-- **🎨 2D Image Generation** via OpenAI, Stability AI, and Recraft
+- **🎨 2D Image Generation** via OpenAI, Stability AI, Recraft, and Flux
 - **🔶 3D Model Generation** via Tripo AI and Stability AI  
 - **✏️ Sketch Processing** via Stability AI
 - **🖼️ Background Removal** via Stability AI and Recraft
@@ -66,17 +66,17 @@ The MakeIt3D Backend-For-Frontend (BFF) API serves as an intermediary between yo
 ### Multi-Provider Support
 Each endpoint now supports multiple AI providers with provider-specific parameters:
 
-| Endpoint | OpenAI | Tripo | Stability | Recraft |
-|----------|--------|-------|-----------|---------|
-| `/image-to-image` | ✅ | ❌ | ✅ | ✅ |
-| `/text-to-image` | ✅ | ❌ | ✅ | ✅ |
-| `/text-to-model` | ❌ | ✅ | ❌ | ❌ |
-| `/image-to-model` | ❌ | ✅ | ✅ | ❌ |
-| `/sketch-to-image` | ❌ | ❌ | ✅ | ❌ |
-| `/image-inpaint` | ❌ | ❌ | ❌ | ✅ |
-| `/remove-background` | ❌ | ❌ | ✅ | ✅ |
-| `/search-and-recolor` | ❌ | ❌ | ✅ | ❌ |
-| `/refine-model` | ❌ | ✅ | ❌ | ❌ |
+| Endpoint | OpenAI | Tripo | Stability | Recraft | Flux |
+|----------|--------|-------|-----------|---------|------|
+| `/image-to-image` | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `/text-to-image` | ✅ | ❌ | ✅ | ✅ | ❌ |
+| `/text-to-model` | ❌ | ✅ | ❌ | ❌ | ❌ |
+| `/image-to-model` | ❌ | ✅ | ✅ | ❌ | ❌ |
+| `/sketch-to-image` | ❌ | ❌ | ✅ | ❌ | ❌ |
+| `/image-inpaint` | ❌ | ❌ | ❌ | ✅ | ❌ |
+| `/remove-background` | ❌ | ❌ | ✅ | ✅ | ❌ |
+| `/search-and-recolor` | ❌ | ❌ | ✅ | ❌ | ❌ |
+| `/refine-model` | ❌ | ✅ | ❌ | ❌ | ❌ |
 
 ### New Endpoints
 - **`/text-to-image`** - New 2D image generation from text using OpenAI, Stability, and Recraft
@@ -97,7 +97,7 @@ Every generation request must specify which AI provider to use:
 
 ```javascript
 {
-  "provider": "openai",  // Required: "openai", "stability", "recraft", or "tripo"
+  "provider": "openai",  // Required: "openai", "stability", "recraft", "flux", or "tripo"
   "task_id": "task-workspace-abc123",
   // ... other parameters
 }
@@ -233,6 +233,22 @@ Transform an input image into concept variations using multiple AI providers.
   "model": "recraftv3",                       // Optional: Model version
   "response_format": "url",                   // Optional: "url" or "b64_json"
   "style_id": "custom_style_123"              // Optional: Custom style ID
+}
+```
+
+#### Flux Provider
+```javascript
+{
+  "task_id": "task-workspace-mno012",
+  "provider": "flux",
+  "prompt": "A futuristic cityscape at dusk",
+  "input_image_asset_url": "https://...",
+  
+  // Flux-specific parameters:
+  "aspect_ratio": "1:1",                      // Optional: "1:1", "16:9", "9:16", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "16:9"
+  "output_format": "png",                     // Optional: "png", "jpeg"
+  "safety_tolerance": 2,                      // Optional: 0-6, higher = more permissive
+  "prompt_upsampling": false                  // Optional: Enhance prompt automatically
 }
 ```
 
@@ -526,6 +542,7 @@ Poll for real-time updates on your generation tasks.
 - Tripo AI tasks: `service=tripoai`  
 - Stability AI tasks: `service=openai`
 - Recraft tasks: `service=openai`
+- Flux tasks: `service=openai`
 
 **Example:**
 ```javascript
@@ -805,6 +822,11 @@ const shirtResult = await recolorObject(
 - **Strengths**: Specialized 3D generation, multiview support, model refinement
 - **Limitations**: 3D models only, longer processing times
 - **Best for**: High-quality 3D models, professional 3D workflows
+
+### Flux
+- **Strengths**: High-quality image transformations, advanced context understanding
+- **Limitations**: Image-to-image only, no text-to-image support
+- **Best for**: Professional image editing, context-aware transformations
 
 ---
 

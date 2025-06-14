@@ -6,7 +6,7 @@ import os
 
 # Import all shared helpers and utilities
 from .test_helpers import (
-    BASE_URL, logger, download_file, poll_task_status, print_test_summary,
+    BASE_URL, logger, download_file, poll_task_status, wait_for_celery_task, print_test_summary,
     supabase_handler
 )
 
@@ -248,9 +248,9 @@ async def test_generate_image_to_model_stability(request):
     celery_task_id = result["celery_task_id"]
     print(f"🆔 Celery Task ID: {celery_task_id}")
 
-    # Poll for completion
+    # Wait for Celery task completion (Stability is synchronous)
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "stability", total_timeout=300.0)
+    task_result_data = await wait_for_celery_task(celery_task_id, "Stability", total_timeout=300.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")

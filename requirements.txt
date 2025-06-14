@@ -30,5 +30,8 @@ flower==2.0.1
 # Async support for Celery
 eventlet==0.36.1
 
+# AI image generation
+replicate
+
 # Additional dependencies that might be needed
 typing-extensions==4.13.2 

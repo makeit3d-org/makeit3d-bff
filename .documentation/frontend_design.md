@@ -322,257 +322,406 @@ const generateImage = async (prompt) => {
 
 ## 11. Appendix A: Implementation Task List
 
-### Phase 1: Foundation & Setup
+### 🚀 Phase 1: Project Structure Setup (Priority: High)
+- [ ] Create new directory structure under `src/features/`
+  - [ ] `dashboard/` - Landing page with creation buttons
+  - [ ] `workspace/` - Asset management interface  
+  - [ ] `canvas-2d/` - Complete 2D editor with AI tools
+  - [ ] `sculpt-3d/` - Reorganized existing 3D editor
+- [ ] Create new directory structure under `src/shared/`
 - [ ] Add TypeScript configuration (`tsconfig.json`) 
-- [ ] Install new dependencies for 2D features
-  - [ ] React Native Skia for canvas
-  - [ ] Supabase JavaScript client
-  - [ ] Additional Redux Toolkit Query dependencies
-- [ ] Configure Supabase client and environment variables
-- [ ] Add TypeScript type definitions directory (`/src/types/`)
+- [ ] Install new dependencies:
+  - [ ] `react-native-skia` - Canvas rendering
+  - [ ] `@supabase/supabase-js` - Database integration
+  - [ ] `react-native-purchases` - RevenueCat SDK
+  - [ ] Additional Redux Toolkit dependencies
 
-### Phase 2: Authentication Integration  
-- [ ] Install and configure Supabase Auth
-- [ ] Create authentication components (TypeScript)
-  - [ ] `LoginForm.tsx`
-  - [ ] `SignupForm.tsx` 
-  - [ ] `ProfileMenu.tsx`
-- [ ] Create auth Redux slice (`authSlice.ts`)
-- [ ] Add authentication navigation flow
-- [ ] Update existing navigation to handle auth state
-- [ ] Create authentication service layer
+### 🏠 Phase 2: Dashboard Implementation (Priority: High)
+- [ ] Create `features/dashboard/screens/DashboardScreen.tsx`
+- [ ] Implement creation buttons:
+  - [ ] "Sketch / Image" → Navigate to Canvas2D
+  - [ ] "Sculpture" → Navigate to existing ModelPicker
+- [ ] Create `features/dashboard/components/assets/AssetGrid.tsx` (recent assets)
+- [ ] Add public asset discovery components
+- [ ] Integrate with credit balance display
+- [ ] Update main navigation to start with Dashboard
 
-### Phase 3: Database & API Integration
-- [ ] Create API client setup (`/src/state/api/`)
-  - [ ] `bffClient.ts` - BFF API client with JWT auth
-  - [ ] `supabaseClient.ts` - Supabase client configuration
-  - [ ] `authApi.ts` - Authentication API calls
-  - [ ] `canvasApi.ts` - 2D generation API calls
-  - [ ] `assetsApi.ts` - Asset management API calls
-- [ ] Create Supabase service layer (`/src/services/`)
-  - [ ] `authService.ts` 
-  - [ ] `storageService.ts`
-  - [ ] `cacheService.ts`
+### 🗂️ Phase 3: Workspace Implementation (Priority: High)  
+- [ ] Create `features/workspace/screens/WorkspaceScreen.tsx`
+- [ ] Implement sorting controls ("Sorting 1", "Sorting 2" from wireframes)
+- [ ] Create upload functionality with camera/file integration
+- [ ] Add asset filtering (image vs model types)
+- [ ] Implement asset actions (fast click → edit, hold → info)
+- [ ] Create shared AssetGrid and AssetCard components
+- [ ] Integrate with Supabase storage for asset management
 
-### Phase 4: New Screen Infrastructure
-- [ ] Create new screen components (TypeScript)
-  - [ ] `DashboardScreen.tsx` - Main hub with create options
-  - [ ] `WorkspaceScreen.tsx` - Asset management grid
-  - [ ] `CanvasScreen.tsx` - 2D drawing interface
-  - [ ] `AuthScreen.tsx` - Login/signup flow
-- [ ] Update `AppNavigator.js` to include new screens
-- [ ] Create auth-protected navigation wrapper
+### 🎨 Phase 4: 2D Canvas Core (Priority: High)
+- [ ] Create `features/canvas-2d/screens/Canvas2DScreen.tsx`
+- [ ] Implement React Native Skia canvas:
+  - [ ] `SketchCanvas.tsx` - Main drawing surface
+  - [ ] Basic drawing tools (pen, pencil, brush, eraser)
+  - [ ] Touch gesture handling for drawing
+  - [ ] Zoom and pan functionality
+- [ ] Create brush controls (size, type, color) from wireframe #5
+- [ ] Implement undo/redo with canvas history
+- [ ] Add image upload and camera integration
+- [ ] Create image history component (Img1, Img2, Img3)
 
-### Phase 5: 2D Canvas Implementation
-- [ ] Create canvas components (`/src/components/canvas/`)
-  - [ ] `SketchCanvas.tsx` - Main Skia drawing canvas
-  - [ ] `BrushControls.tsx` - Drawing tool controls
-  - [ ] `AIToolPanel.tsx` - AI generation interface
-  - [ ] `ImageHistory.tsx` - Version management
-- [ ] Create canvas Redux slice (`canvasSlice.ts`)
-- [ ] Implement drawing functionality
-  - [ ] Touch gesture handling
-  - [ ] Brush tools (pen, brush, eraser)
-  - [ ] Color and size controls
-  - [ ] Undo/redo integration with existing `undoRedoManager.js`
-- [ ] Add canvas export functionality (to images)
+### 🤖 Phase 5: AI Tools Integration (Priority: High)
+- [ ] Create AI tool components matching wireframe workflow:
+  - [ ] `CreateImageTool.tsx` - Text-to-image (#2)
+  - [ ] `ModifyImageTool.tsx` - Image-to-image (#3) 
+  - [ ] `ModifyAreaTool.tsx` - Inpainting (#4)
+  - [ ] `RecolorTool.tsx` - AI recoloring (#5)
+  - [ ] `RemoveBackgroundTool.tsx` - Background removal
+  - [ ] `ChangeBackgroundTool.tsx` - Background replacement
+- [ ] Implement BFF API integration:
+  - [ ] `/generation/text-to-image` endpoint
+  - [ ] `/generation/image-to-image` endpoint
+  - [ ] `/generation/image-inpaint` endpoint
+  - [ ] `/generation/recolor` endpoint
+  - [ ] `/generation/remove-background` endpoint
+- [ ] Add parameter controls (style, similarity, model selection)
+- [ ] Implement async task polling with progress indicators
 
-### Phase 6: Workspace & Asset Management
-- [ ] Create workspace components (`/src/components/workspace/`)
-  - [ ] `AssetGrid.tsx` - Grid layout for all assets (2D + existing 3D)
-  - [ ] `AssetCard.tsx` - Individual asset preview cards
-  - [ ] `SortingControls.tsx` - Filtering and sorting
-  - [ ] `UploadButton.tsx` - Asset upload functionality
-- [ ] Create workspace Redux slice (`workspaceSlice.ts`)
-- [ ] Integrate with existing model management from `modelSlice.js`
-- [ ] Add asset versioning and history tracking
-- [ ] Implement public/private sharing features
-
-### Phase 7: AI Tools Integration
-- [ ] Create AI tool modals (`/src/components/modals/`)
-  - [ ] `AIGenerationModal.tsx` - Parameter configuration
-  - [ ] `AssetInfoModal.tsx` - Asset details and actions
-- [ ] Implement BFF API integration for AI services
-  - [ ] Text-to-image requests
-  - [ ] Image-to-image transformations
-  - [ ] Background removal
-  - [ ] Inpainting tools
-  - [ ] Recoloring functionality
-- [ ] Add async task polling and progress indicators
-- [ ] Create AI workflow UI components
-
-### Phase 8: Credit System & Subscription Management
-- [ ] Create credit management components (`/src/components/credits/`)
-  - [ ] `CreditBalance.tsx` - Display current credit balance
-  - [ ] `OperationCostPreview.tsx` - Show cost before operations
+### 💳 Phase 6: Credit System Integration (Priority: Medium)
+- [ ] Create credit management components:
+  - [ ] `CreditBalance.tsx` - Display in header/profile
+  - [ ] `CreditCostPreview.tsx` - Show cost before operations
   - [ ] `InsufficientCreditsModal.tsx` - Upgrade prompts
-  - [ ] `CreditHistory.tsx` - Transaction history display
-  - [ ] `SubscriptionTiers.tsx` - Plan comparison and upgrade
-  - [ ] `PaywallModal.tsx` - RevenueCat paywall integration
-- [ ] Create credit Redux slice (`creditSlice.ts`)
-- [ ] Add credit API integration (`/src/state/api/creditApi.ts`)
-- [ ] Implement credit checking before AI operations
-- [ ] Add optimistic UI updates for credit deductions
-- [ ] **RevenueCat Integration**
-  - [ ] Install RevenueCat SDK (`react-native-purchases`)
-  - [ ] Configure RevenueCat project with App Store Connect & Google Play Console
-  - [ ] Create subscription products in RevenueCat dashboard
-  - [ ] Implement RevenueCat initialization and user identification
-  - [ ] Create subscription status sync with backend
-  - [ ] Add subscription upgrade/downgrade flows
-  - [ ] Implement cross-platform subscription restoration
-  - [ ] Add subscription analytics and metrics tracking
+- [ ] Implement RevenueCat integration:
+  - [ ] Install and configure RevenueCat SDK
+  - [ ] Create subscription tiers and paywall
+  - [ ] Add cross-platform payment handling
+- [ ] Add credit checking before AI operations
+- [ ] Implement optimistic UI updates for credit deductions
 
-### Phase 9: Dashboard Integration
-- [ ] Implement dashboard interface
-  - [ ] "Sketch/Image" creation button → Canvas
-  - [ ] "Sculpture" button → Existing 3D ModelPicker
-  - [ ] Recent assets preview (both 2D and 3D)
-  - [ ] "View All" → Workspace
-  - [ ] Public asset discovery/browse
-  - [ ] Credit balance display in header/menu
-- [ ] Integrate with existing app theme from `useAppTheme` hook
-- [ ] Update app entry point to show dashboard first
+### 🔄 Phase 7: 3D Editor Refactoring (Priority: Medium)
+- [ ] Rename `features/advanced-editor/` → `features/sculpt-3d/`
+- [ ] Move existing 3D components to new structure (keep all filenames)
+- [ ] Move state slices to feature directory (no content changes)
+- [ ] Update import paths in moved files
+- [ ] Extract 3D-specific constants
 
-### Phase 10: Shared Components & Polish
-- [ ] Create shared UI components (`/src/components/shared/`)
-  - [ ] `Button.tsx` - Reusable button component
-  - [ ] `LoadingSpinner.tsx` - Loading states
-  - [ ] `ErrorBoundary.tsx` - Error handling
-- [ ] Extend existing UI components in `/src/components/ui/`
-- [ ] Add responsive design optimizations
-- [ ] Performance optimization for image handling
-- [ ] Memory management for canvas operations
+### 🔗 Phase 8: Shared Infrastructure (Priority: Medium)
+- [ ] Move shared components to `shared/` directory
+- [ ] Create authentication components (Supabase Auth)
+- [ ] Set up Supabase client configuration
+- [ ] Create shared API clients (BFF, Supabase)
+- [ ] Add TypeScript type definitions
+- [ ] Update store configuration for new slices
 
-### Phase 11: Testing & Integration
-- [ ] Extend existing Jest test setup for TypeScript
-- [ ] Add component tests for new 2D features
-- [ ] Integration testing between 2D and existing 3D workflows
-- [ ] Cross-platform testing (iOS/Android/Web)
-- [ ] Performance testing for canvas and image operations
+### 🧪 Phase 9: Testing & Integration (Priority: High)
+- [ ] Test complete user flow: Dashboard → Workspace → 2D Canvas
+- [ ] Verify AI tool workflow (#2-5 from wireframes)
+- [ ] Test credit system integration
+- [ ] Verify 3D editor still works after refactoring
+- [ ] Cross-platform testing (iOS/Android)
+- [ ] Performance testing for canvas operations
 
 ### Dependencies & Prerequisites
-- [ ] Ensure Expo SDK ~50.0.0 compatibility with new packages
+- [ ] Ensure Expo SDK compatibility with new packages
 - [ ] Supabase project configuration and RLS policies
 - [ ] BFF API endpoint availability and documentation
 - [ ] Design assets and icons for 2D features
 
 ### Integration Notes
-- **Preserve Existing**: All current 3D editor functionality in `/src/features/advanced-editor/` remains unchanged
-- **Extend Redux**: New slices integrate with existing store structure and `rootReducer.js`
-- **Navigation**: New screens integrate with existing `AppNavigator.js` and React Navigation setup
-- **Theming**: Leverage existing `useAppTheme` hook and theme system
-- **Testing**: Build upon existing Jest + Testing Library setup
-- **State Management**: Work alongside existing `editorSlice.js`, `appSlice.js`, and `modelSlice.js`
+- **Preserve Existing**: All current 3D editor functionality moves to `src/features/sculpt-3d/` unchanged
+- **Feature Architecture**: New modules in `features/dashboard/`, `features/workspace/`, `features/canvas-2d/`
+- **Shared Infrastructure**: Common components, services, and utilities in `shared/` directory
+- **Hybrid Development**: TypeScript for new features, JavaScript preserved for existing code
+- **State Management**: New slices integrate with existing store in `shared/state/`
+- **Navigation**: New screens integrate with existing navigation system
 
 ## 12. Appendix B: Repository Structure
 
-The project builds upon an existing React Native/Expo codebase with established patterns for Redux state management and component organization. The new 2D canvas features integrate seamlessly with the existing architecture:
+The project builds upon an existing React Native/Expo codebase with established patterns for Redux state management and component organization. The new 2D canvas features integrate seamlessly with the existing architecture through a feature-based organization that separates concerns while maintaining shared infrastructure.
+
+> **File Operation Legend:**
+> - **`# KEEP SAME NAME`** = Move existing file to new location without renaming (stays JavaScript)
+> - **`# NEW`** = Create new file that doesn't exist yet (will be TypeScript)
+> - **`# MOVE FROM [path]`** = File currently exists at specified path and will be relocated
+> - **`# EXTRACT FROM [file]`** = Content extracted from existing file into new file
 
 ```
-/makeit3d-frontend
-├── App.js                          # Main app entry point (existing)
-├── package.json                    # Dependencies (existing + new 2D packages)
-├── babel.config.js                 # Babel configuration (existing)
-├── app.json                        # Expo configuration (existing)
-├── index.js                        # Entry point (existing)
-├── /assets                         # Static assets (existing)
-├── /src
-│   ├── /components                 # Reusable UI components
-│   │   ├── /canvas                 # NEW: 2D Canvas components (TypeScript)
-│   │   │   ├── SketchCanvas.tsx    # Main drawing canvas with Skia
-│   │   │   ├── AIToolPanel.tsx     # AI generation tool interface
-│   │   │   ├── BrushControls.tsx   # Drawing tool controls
-│   │   │   └── ImageHistory.tsx    # Asset version management
-│   │   ├── /workspace              # NEW: Workspace components (TypeScript)
-│   │   │   ├── AssetGrid.tsx       # Grid layout for asset display
-│   │   │   ├── AssetCard.tsx       # Individual asset preview cards
-│   │   │   ├── SortingControls.tsx # Filtering and sorting interface
-│   │   │   └── UploadButton.tsx    # Asset upload functionality
-│   │   ├── /modals                 # NEW: Modal components (TypeScript)
-│   │   │   ├── AIGenerationModal.tsx # AI tool configuration modals
-│   │   │   └── AssetInfoModal.tsx   # Asset details and actions
-│   │   ├── /auth                   # NEW: Authentication components (TypeScript)
-│   │   │   ├── LoginForm.tsx       # Supabase auth login
-│   │   │   ├── SignupForm.tsx      # User registration
-│   │   │   └── ProfileMenu.tsx     # User profile management
-│   │   ├── /credits                # NEW: Credit system components (TypeScript)
-│   │   │   ├── CreditBalance.tsx   # Current credit balance display
-│   │   │   ├── OperationCostPreview.tsx # Cost preview before operations
-│   │   │   ├── InsufficientCreditsModal.tsx # Upgrade prompts and warnings
-│   │   │   ├── CreditHistory.tsx   # Transaction history display
-│   │   │   └── SubscriptionTiers.tsx # Plan comparison and upgrade UI
-│   │   ├── /shared                 # NEW: Shared UI components (TypeScript)
-│   │   │   ├── Button.tsx          # Reusable button component
-│   │   │   ├── LoadingSpinner.tsx  # Loading states
-│   │   │   └── ErrorBoundary.tsx   # Error handling
-│   │   └── /editor                 # EXISTING: 3D sculpting components (JavaScript)
-│   │       ├── BrushVisual.js      # 3D brush visualization
-│   │       ├── Model3D.js          # 3D model rendering
-│   │       └── ModelViewer.js      # 3D model viewer
-│   ├── /screens                    # Top-level screen components
-│   │   ├── DashboardScreen.tsx     # NEW: Main dashboard (TypeScript)
-│   │   ├── WorkspaceScreen.tsx     # NEW: Asset management (TypeScript)
-│   │   ├── CanvasScreen.tsx        # NEW: 2D drawing interface (TypeScript)
-│   │   ├── AuthScreen.tsx          # NEW: Authentication flow (TypeScript)
-│   │   └── ModelPickerScreen.js    # EXISTING: 3D model selection (JavaScript)
-│   ├── /navigation                 # Navigation configuration
-│   │   ├── AppNavigator.js         # UPDATED: Main navigation (existing)
-│   │   └── AuthNavigator.tsx       # NEW: Auth flow navigation (TypeScript)
-│   ├── /state                      # Redux state management
-│   │   ├── store.ts                # UPDATED: Redux store config (TypeScript)
-│   │   ├── /slices                 # Redux state slices
-│   │   │   ├── authSlice.ts        # NEW: Authentication state (TypeScript)
-│   │   │   ├── canvasSlice.ts      # NEW: 2D canvas state (TypeScript)
-│   │   │   ├── workspaceSlice.ts   # NEW: Asset management state (TypeScript)
-│   │   │   ├── creditSlice.ts      # NEW: Credit system state (TypeScript)
-│   │   │   ├── appSlice.js         # EXISTING: Global app state (JavaScript)
-│   │   │   ├── editorSlice.js      # EXISTING: 3D sculpting state (JavaScript)
-│   │   │   └── modelSlice.js       # EXISTING: 3D model state (JavaScript)
-│   │   └── /api                    # NEW: API integration (TypeScript)
-│   │       ├── bffClient.ts        # BFF API client configuration
-│   │       ├── supabaseClient.ts   # Supabase client setup
-│   │       ├── authApi.ts          # Authentication API calls
-│   │       ├── canvasApi.ts        # 2D generation API calls
-│   │       ├── assetsApi.ts        # Asset management API calls
-│   │       └── creditApi.ts        # Credit system API calls
-│   ├── /services                   # NEW: Service layer (TypeScript)
-│   │   ├── authService.ts          # Supabase auth integration
-│   │   ├── storageService.ts       # Asset storage management
-│   │   └── cacheService.ts         # Image and data caching
-│   ├── /utils                      # Utility functions
-│   │   ├── constants.ts            # NEW: App constants (TypeScript)
-│   │   ├── helpers.ts              # NEW: Helper functions (TypeScript)
-│   │   └── UndoRedoManager.js      # EXISTING: Undo/redo functionality (JavaScript)
-│   ├── /types                      # NEW: TypeScript type definitions
-│   │   ├── api.ts                  # BFF API response types
-│   │   ├── supabase.ts             # Database schema types
-│   │   ├── canvas.ts               # Canvas and drawing types
-│   │   ├── assets.ts               # Asset management types
-│   │   └── credits.ts              # Credit system types
-│   └── /hooks                      # Custom React hooks
-│       ├── useAuth.ts              # NEW: Authentication hook (TypeScript)
-│       ├── useCanvas.ts            # NEW: Canvas state management (TypeScript)
-│       ├── useAssets.ts            # NEW: Asset management hook (TypeScript)
-│       ├── useCredits.ts           # NEW: Credit system hook (TypeScript)
-│       └── useSupabase.ts          # NEW: Supabase integration hook (TypeScript)
-├── /config                         # NEW: Configuration files
-│   ├── supabase.ts                 # Supabase configuration
-│   └── constants.ts                # Environment variables and constants
-└── tsconfig.json                   # NEW: TypeScript configuration
+src/
+├── features/
+│   ├── sculpt-3d/                    # RENAMED from advanced-editor/
+│   │   ├── screens/
+│   │   │   └── AdvancedEditorScreen.js    # KEEP SAME NAME (move from features/advanced-editor/screens/)
+│   │   ├── components/
+│   │   │   ├── layout/
+│   │   │   │   └── EditorLayout.js        # KEEP SAME NAME (move from features/advanced-editor/components/layout/)
+│   │   │   ├── viewport/
+│   │   │   │   ├── ModelViewer.js         # KEEP SAME NAME (move from src/components/editor/)
+│   │   │   │   ├── Model3D.js             # KEEP SAME NAME (move from src/components/editor/)
+│   │   │   │   └── BrushVisual.js         # KEEP SAME NAME (move from src/components/editor/)
+│   │   │   └── tools/
+│   │   │       ├── sculpting/
+│   │   │       │   ├── ToolPalette.js     # KEEP SAME NAME (move from features/advanced-editor/components/tools/)
+│   │   │       │   ├── BrushSettingsPanel.js  # KEEP SAME NAME (move from features/advanced-editor/components/tools/)
+│   │   │       │   └── RemeshControls.js  # KEEP SAME NAME (move from features/advanced-editor/components/tools/)
+│   │   │       ├── painting/
+│   │   │       │   ├── ColorPalette.js    # KEEP SAME NAME (move from features/advanced-editor/components/tools/)
+│   │   │       │   └── PaintBrushSettingsPanel.js  # KEEP SAME NAME (move from features/advanced-editor/components/tools/)
+│   │   │       └── shared/
+│   │   │           ├── ToolButton.js      # KEEP SAME NAME (move from features/advanced-editor/components/tools/)
+│   │   │           └── SculptViewToggle.js # KEEP SAME NAME (move from features/advanced-editor/components/tools/)
+│   │   ├── hooks/
+│   │   │   ├── useSculptingSystem.js      # KEEP SAME NAME (move from src/hooks/)
+│   │   │   └── useModelControls.js        # KEEP SAME NAME (move from src/hooks/)
+│   │   ├── state/
+│   │   │   ├── editorSlice.js             # KEEP SAME NAME - NO CONTENT CHANGES (move from src/state/slices/)
+│   │   │   └── modelSlice.js              # KEEP SAME NAME - NO CONTENT CHANGES (move from src/state/slices/)
+│   │   └── constants/
+│   │       └── sculptTools.js             # EXTRACT FROM src/config/constants.js (3D-specific constants only)
+│   │
+│   ├── canvas-2d/                         # NEW FEATURE - all files are new
+│   │   ├── screens/
+│   │   │   └── Canvas2DScreen.tsx         # NEW
+│   │   ├── components/
+│   │   │   ├── layout/
+│   │   │   │   ├── CanvasLayout.tsx       # NEW
+│   │   │   │   ├── ToolbarLayout.tsx      # NEW
+│   │   │   │   └── AIToolsLayout.tsx      # NEW
+│   │   │   ├── canvas/
+│   │   │   │   ├── SketchCanvas.tsx       # NEW - React Native Skia integration
+│   │   │   │   ├── CanvasViewport.tsx     # NEW
+│   │   │   │   ├── BrushVisualizer.tsx    # NEW
+│   │   │   │   └── ImageHistory.tsx       # NEW - Img1, Img2, Img3 from wireframes
+│   │   │   ├── tools/
+│   │   │   │   ├── drawing/
+│   │   │   │   │   ├── BrushControls.tsx  # NEW - Brush controls from wireframe #5
+│   │   │   │   │   ├── DrawingToolPalette.tsx # NEW
+│   │   │   │   │   ├── PenTool.tsx         # NEW
+│   │   │   │   │   ├── PencilTool.tsx      # NEW
+│   │   │   │   │   └── EraserTool.tsx      # NEW
+│   │   │   │   ├── ai/
+│   │   │   │   │   ├── CreateImageTool.tsx # NEW - Wireframe #2 workflow
+│   │   │   │   │   ├── ModifyImageTool.tsx # NEW - Wireframe #3 workflow
+│   │   │   │   │   ├── ModifyAreaTool.tsx  # NEW - Wireframe #4 workflow
+│   │   │   │   │   ├── RecolorTool.tsx     # NEW - Wireframe #5 workflow
+│   │   │   │   │   ├── RemoveBackgroundTool.tsx # NEW
+│   │   │   │   │   ├── ChangeBackgroundTool.tsx # NEW
+│   │   │   │   │   └── AIGenerationModal.tsx # NEW
+│   │   │   │   ├── media/
+│   │   │   │   │   ├── UploadTool.tsx      # NEW - From wireframes
+│   │   │   │   │   ├── PhotoCapture.tsx    # NEW - Camera integration
+│   │   │   │   │   └── AddImageTool.tsx    # NEW
+│   │   │   │   └── selection/
+│   │   │   │       ├── SelectionTools.tsx  # NEW
+│   │   │   │       ├── LassoTool.tsx       # NEW
+│   │   │   │       └── RectangleSelect.tsx # NEW
+│   │   │   └── ui/
+│   │   │       ├── UndoRedoControls.tsx    # NEW - From wireframes
+│   │   │       ├── ZoomControls.tsx        # NEW
+│   │   │       ├── ColorPicker.tsx         # NEW
+│   │   │       └── CanvasGrid.tsx          # NEW
+│   │   ├── hooks/
+│   │   │   ├── useCanvas2D.ts             # NEW
+│   │   │   ├── useDrawingEngine.ts        # NEW
+│   │   │   ├── useAIGeneration.ts         # NEW
+│   │   │   ├── useImageProcessing.ts      # NEW
+│   │   │   ├── useCanvasHistory.ts        # NEW
+│   │   │   ├── useSelectionSystem.ts      # NEW
+│   │   │   └── useGestureHandling.ts      # NEW
+│   │   ├── state/
+│   │   │   └── canvas2dSlice.ts           # NEW - Complete 2D state slice
+│   │   ├── utils/
+│   │   │   ├── canvasOperations.ts        # NEW
+│   │   │   ├── imageProcessing.ts         # NEW
+│   │   │   ├── aiImageUtils.ts            # NEW
+│   │   │   ├── skiaHelpers.ts             # NEW
+│   │   │   └── selectionUtils.ts          # NEW
+│   │   └── constants/
+│   │       ├── canvas2dTools.ts           # NEW
+│   │       ├── aiImageSettings.ts         # NEW
+│   │       └── canvasSettings.ts          # NEW
+│   │
+│   ├── dashboard/                         # NEW FEATURE - all files are new
+│   │   ├── screens/
+│   │   │   └── DashboardScreen.tsx        # NEW
+│   │   ├── components/
+│   │   │   ├── layout/
+│   │   │   │   └── DashboardLayout.tsx    # NEW
+│   │   │   ├── creation/
+│   │   │   │   ├── CreationButtons.tsx    # NEW - "Sketch/Image" & "Sculpture" buttons
+│   │   │   │   ├── SketchButton.tsx       # NEW
+│   │   │   │   └── SculptureButton.tsx    # NEW
+│   │   │   ├── assets/
+│   │   │   │   ├── AssetGrid.tsx          # NEW - Recent assets grid
+│   │   │   │   ├── AssetCard.tsx          # NEW - Individual asset cards
+│   │   │   │   └── ViewAllButton.tsx      # NEW - "View All" → Workspace
+│   │   │   └── discovery/
+│   │   │       ├── PublicAssets.tsx       # NEW
+│   │   │       └── ExploreSection.tsx     # NEW
+│   │   ├── hooks/
+│   │   │   ├── useDashboard.ts            # NEW
+│   │   │   ├── useRecentAssets.ts         # NEW
+│   │   │   └── usePublicAssets.ts         # NEW
+│   │   ├── state/
+│   │   │   └── dashboardSlice.ts          # NEW
+│   │   └── utils/
+│   │       └── assetPreview.ts            # NEW
+│   │
+│   └── workspace/                         # NEW FEATURE - all files are new
+│       ├── screens/
+│       │   └── WorkspaceScreen.tsx        # NEW
+│       ├── components/
+│       │   ├── layout/
+│       │   │   ├── WorkspaceLayout.tsx    # NEW
+│       │   │   └── WorkspaceHeader.tsx    # NEW
+│       │   ├── assets/
+│       │   │   ├── AssetGrid.tsx          # NEW - Shared with dashboard
+│       │   │   ├── AssetCard.tsx          # NEW - Shared with dashboard
+│       │   │   ├── AssetInfoModal.tsx     # NEW
+│       │   │   └── AssetActions.tsx       # NEW
+│       │   ├── upload/
+│       │   │   ├── UploadButton.tsx       # NEW
+│       │   │   └── UploadModal.tsx        # NEW
+│       │   ├── sorting/
+│       │   │   ├── SortingControls.tsx    # NEW - "Sorting 1", "Sorting 2" from wireframes
+│       │   │   ├── FilterControls.tsx     # NEW
+│       │   │   └── SearchBar.tsx          # NEW
+│       │   └── management/
+│       │       ├── BulkActions.tsx        # NEW
+│       │       └── AssetOrganizer.tsx     # NEW
+│       ├── hooks/
+│       │   ├── useWorkspace.ts            # NEW
+│       │   ├── useAssetManagement.ts      # NEW
+│       │   ├── useAssetFiltering.ts       # NEW
+│       │   └── useAssetUpload.ts          # NEW
+│       ├── state/
+│       │   └── workspaceSlice.ts          # NEW
+│       └── utils/
+│           ├── assetFiltering.ts          # NEW
+│           ├── assetSorting.ts            # NEW
+│           └── uploadUtils.ts             # NEW
+│
+├── shared/                                # Shared infrastructure (mix of moved and new files)
+│   ├── components/
+│   │   ├── ui/                            # MOVE ENTIRE DIRECTORY (keep all existing filenames and JavaScript)
+│   │   │   ├── buttons/                   # KEEP EXISTING STRUCTURE
+│   │   │   │   ├── Button.tsx             # NEW - Enhanced version
+│   │   │   │   └── IconButton.tsx         # NEW
+│   │   │   ├── modals/                    # KEEP EXISTING STRUCTURE
+│   │   │   │   ├── Modal.tsx              # NEW
+│   │   │   │   └── ConfirmModal.tsx       # NEW
+│   │   │   ├── inputs/                    # KEEP EXISTING STRUCTURE  
+│   │   │   │   ├── TextInput.tsx          # NEW
+│   │   │   │   ├── Slider.tsx             # NEW
+│   │   │   │   └── ColorPicker.tsx        # NEW
+│   │   │   ├── feedback/                  # KEEP EXISTING STRUCTURE
+│   │   │   │   ├── LoadingSpinner.tsx     # NEW
+│   │   │   │   ├── ProgressBar.tsx        # NEW
+│   │   │   │   └── ErrorBoundary.tsx      # NEW
+│   │   │   └── layout/
+│   │   │       ├── SafeAreaWrapper.tsx    # NEW
+│   │   │       └── KeyboardAvoidingWrapper.tsx # NEW
+│   │   ├── navigation/
+│   │   │   ├── AppNavigator.tsx           # NEW - Enhanced version of existing
+│   │   │   ├── AuthNavigator.tsx          # NEW
+│   │   │   └── TabNavigator.tsx           # NEW
+│   │   ├── layout/
+│   │   │   ├── RootLayout.js              # KEEP SAME NAME (move from src/components/layout/)
+│   │   │   ├── ScreenHeader.tsx           # NEW
+│   │   │   └── ScreenContainer.tsx        # NEW
+│   │   ├── auth/
+│   │   │   ├── LoginForm.tsx              # NEW
+│   │   │   ├── SignupForm.tsx             # NEW
+│   │   │   ├── ProfileMenu.tsx            # NEW
+│   │   │   └── AuthGuard.tsx              # NEW
+│   │   └── credits/
+│   │       ├── CreditBalance.tsx          # NEW
+│   │       ├── CreditCostPreview.tsx      # NEW
+│   │       ├── InsufficientCreditsModal.tsx # NEW
+│   │       ├── SubscriptionTiers.tsx      # NEW
+│   │       └── PaywallModal.tsx           # NEW
+│   ├── hooks/
+│   │   ├── useAppTheme.js                 # KEEP SAME NAME (move from src/hooks/)
+│   │   ├── useResponsive.js               # KEEP SAME NAME (move from src/hooks/)
+│   │   ├── useCryptoPolyfill.js           # KEEP SAME NAME (move from src/hooks/)
+│   │   ├── useAuth.ts                     # NEW
+│   │   ├── useSupabase.ts                 # NEW
+│   │   ├── useCredits.ts                  # NEW
+│   │   ├── useAsyncStorage.ts             # NEW
+│   │   └── useApiClient.ts                # NEW
+│   ├── state/
+│   │   ├── store.js                       # KEEP SAME NAME (move from src/state/) - enhanced but stays JavaScript
+│   │   ├── rootReducer.js                 # KEEP SAME NAME (move from src/state/) - enhanced but stays JavaScript
+│   │   ├── appSlice.js                    # KEEP SAME NAME (move from src/state/slices/)
+│   │   ├── authSlice.ts                   # NEW
+│   │   ├── creditSlice.ts                 # NEW
+│   │   └── assetSlice.ts                  # NEW
+│   ├── services/
+│   │   ├── api/
+│   │   │   ├── bffClient.ts               # NEW
+│   │   │   ├── supabaseClient.ts          # NEW
+│   │   │   ├── authService.ts             # NEW
+│   │   │   ├── storageService.ts          # NEW
+│   │   │   ├── creditService.ts           # NEW
+│   │   │   └── aiService.ts               # NEW
+│   │   ├── cache/
+│   │   │   ├── imageCache.ts              # NEW
+│   │   │   └── assetCache.ts              # NEW
+│   │   └── payments/
+│   │       └── revenueCatService.ts       # NEW
+│   ├── utils/
+│   │   ├── fileHandling.ts                # NEW
+│   │   ├── imageUtils.ts                  # NEW
+│   │   ├── errorHandling.ts               # NEW
+│   │   ├── validation.ts                  # NEW
+│   │   └── formatting.ts                  # NEW
+│   ├── types/                             # NEW DIRECTORY - TypeScript type definitions
+│   │   ├── api.ts                         # NEW
+│   │   ├── supabase.ts                    # NEW
+│   │   ├── canvas.ts                      # NEW
+│   │   ├── assets.ts                      # NEW
+│   │   ├── credits.ts                     # NEW
+│   │   └── navigation.ts                  # NEW
+│   ├── constants/
+│   │   ├── appConstants.js                # NEW (extract from src/config/constants.js) - stays JavaScript
+│   │   ├── apiEndpoints.ts                # NEW
+│   │   ├── creditRates.ts                 # NEW
+│   │   └── subscriptionTiers.ts           # NEW
+│   └── config/
+│       ├── theme.js                       # KEEP SAME NAME (move from src/config/)
+│       ├── supabase.ts                    # NEW
+│       └── environment.ts                 # NEW
+│
+├── screens/                               # KEEP EXISTING - for backward compatibility with 3D flow
+│   └── ModelPickerScreen.js               # KEEP SAME NAME (existing file, no changes)
+│
+└── assets/                                # KEEP EXISTING - no changes
+    ├── images/
+    ├── fonts/
+    └── models/
 ```
 
-### Integration Strategy
-- **Hybrid Approach**: New 2D features developed in TypeScript while maintaining existing JavaScript components
-- **Shared State**: Unified Redux store handles both new 2D canvas state and existing 3D editor state
-- **Component Reuse**: Shared UI components bridge between new and existing features
-- **Gradual Migration**: TypeScript adoption for new features with existing code compatibility
+### File Operation Examples
 
-### Key Architectural Decisions
-- **Modular Structure**: Clear separation between 2D canvas, workspace, and authentication features
-- **Type Safety**: TypeScript for all new components with proper type definitions
-- **Service Layer**: Dedicated services for Supabase integration and asset management
-- **API Abstraction**: Centralized API clients for BFF and Supabase communication
+#### **"KEEP SAME NAME" Examples (JavaScript stays JavaScript):**
+```bash
+# Before (current location)
+src/components/editor/ModelViewer.js
+
+# After (new location, same filename, same language)  
+src/features/sculpt-3d/components/viewport/ModelViewer.js
+
+# Before (current location)
+src/state/slices/editorSlice.js
+
+# After (new location, same filename, same content, same language)
+src/features/sculpt-3d/state/editorSlice.js
+```
+
+#### **"NEW" Examples (TypeScript for new files):**
+```bash
+# These files don't exist yet and will be created as TypeScript
+src/features/canvas-2d/screens/Canvas2DScreen.tsx
+src/features/dashboard/screens/DashboardScreen.tsx
+src/shared/components/auth/LoginForm.tsx
+```
 
 ## 13. Appendix C: Database Schema
 

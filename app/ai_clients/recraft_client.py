@@ -120,7 +120,7 @@ class RecraftClient:
         Generate image from text using Recraft Text-to-Image.
         Returns list of image URLs.
         """
-        endpoint = f"{self.base_url}/v1/images/textToImage"
+        endpoint = f"{self.base_url}/v1/images/generations"
         
         headers = {
             "Authorization": f"Bearer {self.api_key}",
