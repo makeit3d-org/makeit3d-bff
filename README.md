@@ -46,10 +46,13 @@ The application is designed to be run using Docker and Docker Compose.
 
     Required variables include:
     - `TRIPO_API_KEY` - Your Tripo AI API key
-    - `OPENAI_API_KEY` - Your OpenAI API key  
+    - `OPENAI_API_KEY` - Your OpenAI API key
+    - `STABILITY_API_KEY` - Your Stability AI API key
+    - `RECRAFT_API_KEY` - Your Recraft AI API key
+    - `FLUX_API_KEY` - Your Flux AI API key
     - `SUPABASE_URL` - Your Supabase project URL
     - `SUPABASE_SERVICE_KEY` - Your Supabase service role key
-    - `SUPABASE_ANON_KEY` - Your Supabase anonymous key
+    - `BFF_BASE_URL` - The public URL of your deployed BFF service
     - `REDIS_URL` - Redis connection URL
     - Other variables as needed from `docker-compose.yml`
 
@@ -89,19 +92,24 @@ Deploying this BFF to Railway involves the following general steps:
     *   Connect Railway to your Git repository.
     *   Railway will typically detect the `Dockerfile` and attempt to build and deploy it.
 3.  **Configure Services**:
-    *   **Backend (FastAPI)**: Railway should create a service for your main application. Ensure its start command is similar to what's in your `Dockerfile` or `docker-compose.yml` for the `backend` service (e.g., `uvicorn app.main:app --host 0.0.0.0 --port $PORT`). Railway provides a `$PORT` environment variable that your application should bind to.
+    *   **Backend (FastAPI)**: Railway should create a service for your main application. The `Dockerfile` is configured to use Railway's `$PORT` environment variable automatically. No additional configuration needed for the start command.
     *   **Redis**: Add a Redis service from the Railway marketplace.
     *   **Celery Workers**: You will need to create separate services for each Celery worker type (`celery_worker_default`, `celery_worker_tripo_other`, `celery_worker_tripo_refine`).
         *   Each worker service will use the same Docker image built from your repository.
         *   Set the "Start Command" for each worker service according to its command in `docker-compose.yml` (e.g., `celery -A app.celery_worker worker -l info -P eventlet -c 1 -Q default` for the default worker).
 4.  **Environment Variables**:
     *   In your Railway project settings (and for each service if necessary), configure all the required environment variables:
-        *   `TRIPO_API_KEY`
-        *   `OPENAI_API_KEY`
-        *   `REDIS_URL`: This will be provided by the Railway Redis service. Update your application to use this URL.
-        *   `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (if used directly by BFF, otherwise only for frontend)
-        *   `BFF_BASE_URL`: Set this to the public URL of your deployed backend service on Railway.
-    *   Ensure Celery worker services also have access to these environment variables, especially `REDIS_URL`, `TRIPO_API_KEY`, and `OPENAI_API_KEY`.
+        *   `TRIPO_API_KEY` - Your Tripo AI API key
+        *   `OPENAI_API_KEY` - Your OpenAI API key
+        *   `STABILITY_API_KEY` - Your Stability AI API key
+        *   `RECRAFT_API_KEY` - Your Recraft AI API key
+        *   `FLUX_API_KEY` - Your Flux AI API key
+        *   `SUPABASE_URL` - Your Supabase project URL
+        *   `SUPABASE_SERVICE_KEY` - Your Supabase service role key
+        *   `BFF_BASE_URL` - Set this to the public URL of your deployed backend service on Railway
+        *   `REDIS_URL` - This will be provided by the Railway Redis service
+        *   `TEST_ASSETS_MODE` - Set to `false` for production
+    *   Ensure Celery worker services also have access to these environment variables, especially `REDIS_URL` and all API keys.
 5.  **Networking**:
     *   The backend service will be exposed publicly by Railway.
     *   Redis and Celery workers typically do not need to be exposed publicly and will communicate internally.
