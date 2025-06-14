@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     RECRAFT_API_KEY: str
     REPLICATE_API_KEY: str
     FLUX_API_KEY: str
-    redis_url: str = "redis://localhost:6379/0" # Default Redis URL
+    REDIS_URL: str = "redis://localhost:6379/0" # Default Redis URL for local development
     BFF_BASE_URL: str # Add setting for BFF base URL
     test_assets_mode: bool = False # Controls Supabase storage paths: test_outputs/ vs production paths
 

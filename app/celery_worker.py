@@ -8,8 +8,8 @@ from config import settings
 # Configure Celery
 celery_app = Celery(
     "makeit3d_bff",
-    broker=settings.redis_url,
-    backend=settings.redis_url
+    broker=settings.REDIS_URL,
+    backend=settings.REDIS_URL
 )
 
 # Optional: Configure Celery to use UTC timezone
