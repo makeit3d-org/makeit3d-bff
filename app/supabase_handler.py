@@ -1,6 +1,6 @@
 from supabase import create_client, Client
 from config import settings
-from supabase_client import get_supabase_client
+from supabase_client import get_supabase_client, SupabaseStorageError, SupabaseDBError
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 import httpx # For httpx.HTTPStatusError
@@ -169,7 +169,12 @@ async def upload_asset_to_storage(
             - 500 for other unexpected errors.
     """
     storage_path = f"{get_asset_folder_path(asset_type_plural)}/{task_id}/{file_name}"
-    bucket_name = settings.generated_assets_bucket_name
+    
+    # Determine bucket based on asset type
+    if asset_type_plural.startswith("models") or "models" in asset_type_plural:
+        bucket_name = "models"
+    else:
+        bucket_name = "images"  # Default to images bucket for all other types
 
     try:
         # Define a sync wrapper for the Supabase call to run in a threadpool

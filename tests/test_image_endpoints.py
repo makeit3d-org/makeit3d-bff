@@ -7,7 +7,7 @@ import os
 # Import all shared helpers and utilities
 from .test_helpers import (
     BASE_URL, logger, download_file, poll_task_status, wait_for_celery_task, print_test_summary,
-    supabase_handler
+    supabase_handler, get_auth_headers
 )
 
 # --- Image Generation Tests ---
@@ -69,7 +69,7 @@ async def test_generate_image_to_image(request):
     logger.info(f"Calling {endpoint} with JSON data: {request_data}")
     async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data) # Send JSON payload
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers()) # Send JSON payload with auth
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -175,7 +175,7 @@ async def test_generate_image_to_image_stability(request):
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -256,7 +256,7 @@ async def test_generate_image_to_image_recraft(request):
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -318,7 +318,7 @@ async def test_generate_text_to_image(request):
     logger.info(f"Calling {endpoint} with JSON data: {request_data}")
     async with httpx.AsyncClient() as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -396,7 +396,7 @@ async def test_generate_text_to_image_stability(request):
 
     async with httpx.AsyncClient() as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -461,7 +461,7 @@ async def test_generate_text_to_image_recraft(request):
 
     async with httpx.AsyncClient() as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -543,7 +543,7 @@ async def test_generate_remove_background_stability(request):
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -620,7 +620,7 @@ async def test_generate_remove_background_recraft(request):
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -707,7 +707,7 @@ async def test_generate_sketch_to_image(request):
     logger.info(f"Calling {endpoint} with JSON data: {request_data}")
     async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -915,7 +915,7 @@ async def test_generate_image_inpaint(request):
     
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(endpoint, json=payload)
+            response = await client.post(endpoint, json=payload, headers=get_auth_headers())
             response.raise_for_status()
             response_data = response.json()
             
@@ -1037,7 +1037,7 @@ async def test_generate_search_and_recolor(request):
     logger.info(f"Calling {endpoint} with JSON data: {request_data}")
     async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -1152,7 +1152,7 @@ async def test_generate_image_to_image_flux(request):
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start

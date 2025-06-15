@@ -71,21 +71,27 @@ class StabilityClient:
             "accept": "image/*",
         }
         
-        files = {"none": ""}  # Core model doesn't need image input for text-to-image
-        
+        # Prepare form data
         data = {
             "prompt": prompt,
             "output_format": output_format,
             "aspect_ratio": aspect_ratio,
-            "seed": seed
         }
+        
+        # Only add seed if it's not 0 (default)
+        if seed != 0:
+            data["seed"] = seed
         
         if negative_prompt:
             data["negative_prompt"] = negative_prompt
         if style_preset:
             data["style_preset"] = style_preset
+        
+        # Use files parameter to force multipart/form-data content-type
+        files = {"none": ""}
             
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        # Use longer timeout
+        async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(endpoint, headers=headers, files=files, data=data)
             response.raise_for_status()
             return response.content

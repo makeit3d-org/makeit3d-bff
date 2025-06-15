@@ -126,51 +126,111 @@ The BFF updates your Supabase tables (`concept_images`, `models`) with metadata,
 
 ## Authentication
 
-**The API requires both an API key and a valid Supabase JWT token:**
+**The API requires an API key for authentication:**
 
 ```javascript
 headers: {
   'X-API-Key': 'your-api-key',
-  'Authorization': 'Bearer <supabase-jwt-token>',
   'Content-Type': 'application/json'
 }
 ```
 
-### Getting JWT Tokens
+### Getting API Keys
 
-Obtain JWT tokens through Supabase Auth in your frontend:
+API keys are obtained through the registration endpoint for approved applications and stores:
 
 ```javascript
-// In your React Native app with Supabase
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.EXPO_PUBLIC_SUPABASE_URL!,
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-// Login and get session
-const { data: { session }, error } = await supabase.auth.signInWithPassword({
-  email: 'user@example.com',
-  password: 'password'
+// Register for an API key (requires shared secret)
+const response = await fetch('/auth/register', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    verification_secret: 'your-shared-secret',
+    tenant_type: 'shopify', // or 'supabase_app', 'custom', 'development'
+    tenant_identifier: 'your-store.myshopify.com',
+    tenant_name: 'Your Store Name',
+    metadata: {
+      store_id: '12345',
+      plan: 'basic'
+    }
+  })
 });
 
-// Use session.access_token in Authorization header
-const token = session?.access_token;
+const { api_key } = await response.json();
 ```
+
+### API Key Types
+
+| Tenant Type | Description | Identifier Format |
+|-------------|-------------|-------------------|
+| `shopify` | Shopify stores | `store-name.myshopify.com` |
+| `supabase_app` | Supabase applications | `app-identifier` |
+| `custom` | Custom integrations | `custom-identifier` |
+| `development` | Development/testing | `dev-identifier` |
 
 ### Auth Error Responses
 
 | Code | Response | Description |
 |------|----------|-------------|
-| `401` | `{"error": "unauthorized", "message": "Missing or invalid token"}` | No Authorization header or invalid JWT |
-| `403` | `{"error": "forbidden", "message": "Access denied"}` | Valid token but insufficient permissions |
+| `401` | `{"detail": "Missing API key"}` | No X-API-Key header provided |
+| `401` | `{"detail": "Invalid or inactive API key"}` | Invalid or deactivated API key |
+| `401` | `{"detail": "Invalid verification secret. Access denied."}` | Wrong secret for registration |
+| `400` | `{"detail": "Shopify tenant_identifier must be a valid .myshopify.com domain"}` | Invalid Shopify domain format |
 
-### Test Users
+### Test API Key
 
-For development, you can use these existing test accounts:
-- `test@example.com` (ID: `00000000-0000-4000-8000-000000000001`)  
-- `test-user@example.com` (ID: `123e4567-e89b-12d3-a456-426614174000`)
+For development and testing, you can use this test API key:
+- **Test Key**: `makeit3d_test_sk_dev_001`
+- **Tenant**: `development_tenant` (development type)
+
+---
+
+## Authentication Endpoints
+
+### 🔐 Register API Key
+
+Register a new API key for your application or store.
+
+**Endpoint:** `POST /auth/register`
+
+**Note:** This endpoint requires a shared verification secret provided by MakeIT3D.
+
+```javascript
+{
+  "verification_secret": "your-shared-secret",     // Required: Shared secret for verification
+  "tenant_type": "shopify",                        // Required: "shopify", "supabase_app", "custom", "development"
+  "tenant_identifier": "store.myshopify.com",     // Required: Unique identifier
+  "tenant_name": "My Store",                       // Optional: Human readable name
+  "metadata": {                                    // Optional: Additional information
+    "store_id": "12345",
+    "plan": "basic"
+  }
+}
+```
+
+**Response:**
+```javascript
+{
+  "api_key": "makeit3d_live_sk_shopify_abc123def456",
+  "tenant_id": "store.myshopify.com",
+  "tenant_type": "shopify",
+  "message": "API key successfully registered for shopify tenant: store.myshopify.com"
+}
+```
+
+### 🏥 Auth Health Check
+
+Check the health of the authentication service.
+
+**Endpoint:** `GET /auth/health`
+
+**Response:**
+```javascript
+{
+  "status": "healthy",
+  "service": "auth"
+}
+```
 
 ---
 

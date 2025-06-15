@@ -66,9 +66,11 @@ def generate_tripo_text_to_model_task(self, model_db_id: str, request_data_dict:
                 status="processing",
             )
 
-            # Wait for completion and get result - implement proper polling loop
-            max_polls = 180  # 3 minutes with 1-second intervals
+            # Wait for completion and get result - implement intelligent polling with stuck task detection
+            max_polls = 300  # 5 minutes with 1-second intervals
             poll_count = 0
+            stuck_at_99_count = 0  # Track how long we've been stuck at 99%
+            max_stuck_at_99 = 60   # Max 60 seconds stuck at 99% before giving up
             
             while poll_count < max_polls:
                 tripo_response = await tripo_client.poll_tripo_task_status(tripo_task_id)
@@ -128,12 +130,30 @@ def generate_tripo_text_to_model_task(self, model_db_id: str, request_data_dict:
                     logger.error(f"Celery task {celery_task_id}: {error_message}")
                     raise CeleryTaskException(error_message)
                 
+                # Check for stuck at 99% condition - this is a known Tripo API issue
+                if task_status == "processing" and progress >= 99:
+                    stuck_at_99_count += 1
+                    logger.warning(f"Celery task {celery_task_id}: Task stuck at {progress}% for {stuck_at_99_count} seconds")
+                    
+                    # Check if we have additional timing info from Tripo API
+                    tripo_data = tripo_response.get("data", {})
+                    estimated_time = tripo_data.get("estimated_running_time", 0)
+                    running_left_time = tripo_data.get("running_left_time", 0)
+                    
+                    if stuck_at_99_count >= max_stuck_at_99:
+                        error_message = f"Tripo AI task stuck at {progress}% for {stuck_at_99_count} seconds. This is a known Tripo API issue where tasks get permanently stuck. estimated_running_time: {estimated_time}s, running_left_time: {running_left_time}s"
+                        logger.error(f"Celery task {celery_task_id}: {error_message}")
+                        raise CeleryTaskException(error_message)
+                else:
+                    # Reset stuck counter if we're not at 99%
+                    stuck_at_99_count = 0
+                
                 # Task is still pending or processing, wait and poll again
                 poll_count += 1
                 await asyncio.sleep(1)
             
             # If we reach here, polling timed out
-            error_message = f"Tripo AI task polling timed out after {max_polls} polls"
+            error_message = f"Tripo AI task polling timed out after {max_polls} polls ({max_polls/60:.1f} minutes)"
             logger.error(f"Celery task {celery_task_id}: {error_message}")
             raise CeleryTaskException(error_message)
 
@@ -222,9 +242,11 @@ def generate_tripo_image_to_model_task(self, model_db_id: str, image_bytes_list:
                 status="processing"
             )
 
-            # Wait for completion and get result - implement proper polling loop
-            max_polls = 180  # 3 minutes with 1-second intervals
+            # Wait for completion and get result - implement intelligent polling with stuck task detection
+            max_polls = 300  # 5 minutes with 1-second intervals
             poll_count = 0
+            stuck_at_99_count = 0  # Track how long we've been stuck at 99%
+            max_stuck_at_99 = 60   # Max 60 seconds stuck at 99% before giving up
             
             while poll_count < max_polls:
                 tripo_response = await tripo_client.poll_tripo_task_status(tripo_task_id)
@@ -284,12 +306,30 @@ def generate_tripo_image_to_model_task(self, model_db_id: str, image_bytes_list:
                     logger.error(f"Celery task {celery_task_id}: {error_message}")
                     raise CeleryTaskException(error_message)
                 
+                # Check for stuck at 99% condition - this is a known Tripo API issue
+                if task_status == "processing" and progress >= 99:
+                    stuck_at_99_count += 1
+                    logger.warning(f"Celery task {celery_task_id}: Task stuck at {progress}% for {stuck_at_99_count} seconds")
+                    
+                    # Check if we have additional timing info from Tripo API
+                    tripo_data = tripo_response.get("data", {})
+                    estimated_time = tripo_data.get("estimated_running_time", 0)
+                    running_left_time = tripo_data.get("running_left_time", 0)
+                    
+                    if stuck_at_99_count >= max_stuck_at_99:
+                        error_message = f"Tripo AI task stuck at {progress}% for {stuck_at_99_count} seconds. This is a known Tripo API issue where tasks get permanently stuck. estimated_running_time: {estimated_time}s, running_left_time: {running_left_time}s"
+                        logger.error(f"Celery task {celery_task_id}: {error_message}")
+                        raise CeleryTaskException(error_message)
+                else:
+                    # Reset stuck counter if we're not at 99%
+                    stuck_at_99_count = 0
+                
                 # Task is still pending or processing, wait and poll again
                 poll_count += 1
                 await asyncio.sleep(1)
             
             # If we reach here, polling timed out
-            error_message = f"Tripo AI task polling timed out after {max_polls} polls"
+            error_message = f"Tripo AI task polling timed out after {max_polls} polls ({max_polls/60:.1f} minutes)"
             logger.error(f"Celery task {celery_task_id}: {error_message}")
             raise CeleryTaskException(error_message)
 
@@ -377,9 +417,11 @@ def generate_tripo_refine_model_task(self, model_db_id: str, model_bytes: bytes,
                 status="processing"
             )
 
-            # Wait for completion and get result - implement proper polling loop
-            max_polls = 180  # 3 minutes with 1-second intervals
+            # Wait for completion and get result - implement intelligent polling with stuck task detection
+            max_polls = 300  # 5 minutes with 1-second intervals (refine tasks take longer)
             poll_count = 0
+            stuck_at_99_count = 0  # Track how long we've been stuck at 99%
+            max_stuck_at_99 = 60   # Max 60 seconds stuck at 99% before giving up
             
             while poll_count < max_polls:
                 tripo_response = await tripo_client.poll_tripo_task_status(tripo_task_id)
@@ -438,12 +480,30 @@ def generate_tripo_refine_model_task(self, model_db_id: str, model_bytes: bytes,
                     logger.error(f"Celery task {celery_task_id}: {error_message}")
                     raise CeleryTaskException(error_message)
                 
+                # Check for stuck at 99% condition - this is a known Tripo API issue
+                if task_status == "processing" and progress >= 99:
+                    stuck_at_99_count += 1
+                    logger.warning(f"Celery task {celery_task_id}: Task stuck at {progress}% for {stuck_at_99_count} seconds")
+                    
+                    # Check if we have additional timing info from Tripo API
+                    tripo_data = tripo_response.get("data", {})
+                    estimated_time = tripo_data.get("estimated_running_time", 0)
+                    running_left_time = tripo_data.get("running_left_time", 0)
+                    
+                    if stuck_at_99_count >= max_stuck_at_99:
+                        error_message = f"Tripo AI task stuck at {progress}% for {stuck_at_99_count} seconds. This is a known Tripo API issue where tasks get permanently stuck. estimated_running_time: {estimated_time}s, running_left_time: {running_left_time}s"
+                        logger.error(f"Celery task {celery_task_id}: {error_message}")
+                        raise CeleryTaskException(error_message)
+                else:
+                    # Reset stuck counter if we're not at 99%
+                    stuck_at_99_count = 0
+                
                 # Task is still pending or processing, wait and poll again
                 poll_count += 1
                 await asyncio.sleep(1)
             
             # If we reach here, polling timed out
-            error_message = f"Tripo AI task polling timed out after {max_polls} polls"
+            error_message = f"Tripo AI task polling timed out after {max_polls} polls ({max_polls/60:.1f} minutes)"
             logger.error(f"Celery task {celery_task_id}: {error_message}")
             raise CeleryTaskException(error_message)
 

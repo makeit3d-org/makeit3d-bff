@@ -22,7 +22,10 @@ from app.config import settings
 # When running in Docker Compose, services communicate using container names
 # When running from host, we need to use localhost
 BASE_URL = os.environ.get("TEST_BASE_URL", "http://localhost:8000")
-OUTPUTS_DIR = "./tests/outputs"
+OUTPUTS_DIR = "/tests/outputs"
+
+# Test API Key for authentication
+TEST_API_KEY = os.environ.get("TEST_API_KEY", "makeit3d_test_sk_dev_001")
 
 # Configure logging for tests
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,6 +33,11 @@ logger = logging.getLogger(__name__)
 
 # Ensure the outputs directory exists
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
+
+# --- Helper function for authenticated API calls ---
+def get_auth_headers():
+    """Get authentication headers for API calls."""
+    return {"X-API-Key": TEST_API_KEY, "Content-Type": "application/json"}
 
 # --- Helper function to download files ---
 async def download_file(url: str, test_name: str, file_suffix: str):
@@ -161,11 +169,14 @@ async def poll_task_status(task_id: str, service: str, poll_interval: int = 2, t
     start_time = time.time()
     last_progress = -1
     
+    # Headers with API key for authentication
+    headers = {"X-API-Key": TEST_API_KEY}
+    
     while time.time() - start_time < total_timeout:
         try:
             # Use a shorter timeout for individual polling requests
             async with httpx.AsyncClient(timeout=10.0) as client:
-                status_response = await client.get(status_url)
+                status_response = await client.get(status_url, headers=headers)
                 status_response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
                 status_data = status_response.json()
                 
@@ -188,7 +199,7 @@ async def poll_task_status(task_id: str, service: str, poll_interval: int = 2, t
                         # Sometimes the model_url isn't immediately available
                         logger.warning(f"Task {task_id} marked as complete but missing asset_url. Polling once more...")
                         await asyncio.sleep(2)
-                        status_response = await client.get(status_url)
+                        status_response = await client.get(status_url, headers=headers)
                         status_response.raise_for_status()
                         status_data = status_response.json()
                         logger.info(f"Additional poll result for task {task_id}: {status_data}")

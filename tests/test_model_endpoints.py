@@ -8,7 +8,7 @@ import asyncio
 # Import all shared helpers and utilities
 from .test_helpers import (
     BASE_URL, logger, download_file, poll_task_status, wait_for_celery_task, print_test_summary,
-    supabase_handler
+    supabase_handler, get_auth_headers
 )
 
 # --- Model Generation Tests ---
@@ -38,7 +38,7 @@ async def test_generate_text_to_model(request):
     logger.info(f"Calling {endpoint} with JSON data: {request_data}")
     async with httpx.AsyncClient() as client:
         api_call_start = time.time()
-        response = await client.post(endpoint, json=request_data)
+        response = await client.post(endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start
@@ -163,7 +163,7 @@ async def test_generate_image_to_model(request):
     logger.info(f"Calling {image_to_model_endpoint} with JSON data: {request_data}")
     async with httpx.AsyncClient() as client:
         api_call_start = time.time()
-        response = await client.post(image_to_model_endpoint, json=request_data)
+        response = await client.post(image_to_model_endpoint, json=request_data, headers=get_auth_headers())
         response.raise_for_status()
         result = response.json()
         api_response_time = time.time() - api_call_start

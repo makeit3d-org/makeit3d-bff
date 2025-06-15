@@ -4,6 +4,44 @@
 
 This document provides ready-to-use cURL commands for all MakeIT3D BFF API endpoints.
 
+## 🔐 Authentication
+
+All API requests require an API key in the `X-API-Key` header:
+
+```bash
+# Set your API key
+export API_KEY="your-api-key-here"
+
+# For testing, you can use the development API key:
+export API_KEY="makeit3d_test_sk_dev_001"
+
+# All requests should include this header:
+-H "X-API-Key: $API_KEY"
+```
+
+## 🔐 Authentication Endpoints
+
+### Register API Key
+```bash
+curl -X POST https://api.makeit3d.io/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "verification_secret": "your-shared-secret",
+    "tenant_type": "shopify",
+    "tenant_identifier": "your-store.myshopify.com",
+    "tenant_name": "Your Store Name",
+    "metadata": {
+      "store_id": "12345",
+      "plan": "basic"
+    }
+  }'
+```
+
+### Auth Health Check
+```bash
+curl https://api.makeit3d.io/auth/health
+```
+
 ## 📊 System Endpoints
 
 ### Health Check
@@ -23,6 +61,7 @@ curl https://api.makeit3d.io/
 #### OpenAI DALL-E
 ```bash
 curl -X POST https://api.makeit3d.io/generate/text-to-image \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "text-to-image-openai-001",
@@ -38,6 +77,7 @@ curl -X POST https://api.makeit3d.io/generate/text-to-image \
 #### Stability AI
 ```bash
 curl -X POST https://api.makeit3d.io/generate/text-to-image \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "text-to-image-stability-001",
@@ -54,6 +94,7 @@ curl -X POST https://api.makeit3d.io/generate/text-to-image \
 #### Recraft AI
 ```bash
 curl -X POST https://api.makeit3d.io/generate/text-to-image \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "text-to-image-recraft-001",
@@ -69,6 +110,7 @@ curl -X POST https://api.makeit3d.io/generate/text-to-image \
 #### Flux AI
 ```bash
 curl -X POST https://api.makeit3d.io/generate/text-to-image \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "text-to-image-flux-001",
@@ -86,6 +128,7 @@ curl -X POST https://api.makeit3d.io/generate/text-to-image \
 #### OpenAI DALL-E
 ```bash
 curl -X POST https://api.makeit3d.io/generate/image-to-image \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "image-to-image-openai-001",
@@ -101,6 +144,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
 #### Stability AI
 ```bash
 curl -X POST https://api.makeit3d.io/generate/image-to-image \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "image-to-image-stability-001",
@@ -118,6 +162,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
 #### Recraft AI
 ```bash
 curl -X POST https://api.makeit3d.io/generate/image-to-image \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "image-to-image-recraft-001",
@@ -134,6 +179,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
 #### Flux AI
 ```bash
 curl -X POST https://api.makeit3d.io/generate/image-to-image \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "image-to-image-flux-001",
@@ -150,6 +196,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
 
 ```bash
 curl -X POST https://api.makeit3d.io/generate/sketch-to-image \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "sketch-to-image-001",
@@ -168,6 +215,7 @@ curl -X POST https://api.makeit3d.io/generate/sketch-to-image \
 #### Stability AI
 ```bash
 curl -X POST https://api.makeit3d.io/generate/remove-background \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "remove-bg-stability-001",
@@ -180,6 +228,7 @@ curl -X POST https://api.makeit3d.io/generate/remove-background \
 #### Recraft AI
 ```bash
 curl -X POST https://api.makeit3d.io/generate/remove-background \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "remove-bg-recraft-001",
@@ -193,6 +242,7 @@ curl -X POST https://api.makeit3d.io/generate/remove-background \
 
 ```bash
 curl -X POST https://api.makeit3d.io/generate/image-inpaint \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "image-inpaint-001",
@@ -213,6 +263,7 @@ curl -X POST https://api.makeit3d.io/generate/image-inpaint \
 
 ```bash
 curl -X POST https://api.makeit3d.io/generate/search-and-recolor \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "search-recolor-001",
@@ -234,6 +285,7 @@ curl -X POST https://api.makeit3d.io/generate/search-and-recolor \
 
 ```bash
 curl -X POST https://api.makeit3d.io/generate/text-to-model \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "text-to-model-001",
@@ -254,6 +306,7 @@ curl -X POST https://api.makeit3d.io/generate/text-to-model \
 #### Tripo AI (Multi-view)
 ```bash
 curl -X POST https://api.makeit3d.io/generate/image-to-model \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "image-to-model-tripo-001",
@@ -277,6 +330,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-model \
 #### Stability AI (Single image)
 ```bash
 curl -X POST https://api.makeit3d.io/generate/image-to-model \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "image-to-model-stability-001",
@@ -298,6 +352,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-model \
 
 ```bash
 curl -X POST https://api.makeit3d.io/generate/refine-model \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "refine-model-001",
@@ -321,22 +376,22 @@ curl -X POST https://api.makeit3d.io/generate/refine-model \
 #### For Image Generation Tasks
 ```bash
 # OpenAI tasks
-curl "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=openai"
+curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=openai"
 
 # Stability AI tasks
-curl "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=stability"
+curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=stability"
 
 # Recraft AI tasks
-curl "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=recraft"
+curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=recraft"
 
 # Flux AI tasks
-curl "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=flux"
+curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=flux"
 ```
 
 #### For 3D Model Generation Tasks
 ```bash
 # Tripo AI tasks
-curl "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=tripoai"
+curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=tripoai"
 ```
 
 ### Example Status Response
@@ -354,6 +409,7 @@ curl "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=tripoai"
 ### 1. Submit a Text-to-Image Request
 ```bash
 RESPONSE=$(curl -s -X POST https://api.makeit3d.io/generate/text-to-image \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "workflow-example-001",
@@ -376,7 +432,7 @@ echo "Celery Task ID: $CELERY_TASK_ID"
 ### 3. Poll for Completion
 ```bash
 while true; do
-  STATUS_RESPONSE=$(curl -s "https://api.makeit3d.io/tasks/$CELERY_TASK_ID/status?service=openai")
+  STATUS_RESPONSE=$(curl -s -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/$CELERY_TASK_ID/status?service=openai")
   STATUS=$(echo $STATUS_RESPONSE | jq -r '.status')
   
   echo "Current status: $STATUS"
@@ -451,4 +507,5 @@ fi
 
 **API Version**: 1.0.0  
 **Last Updated**: June 2025  
+**Base URL**: https://api.makeit3d.io
 **Base URL**: https://api.makeit3d.io 

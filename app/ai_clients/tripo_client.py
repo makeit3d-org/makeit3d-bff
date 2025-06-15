@@ -378,17 +378,21 @@ def normalize_tripo_status(tripo_response: Dict[str, Any]) -> Dict[str, Any]:
         normalized_progress = 100
         logger.info(f"Overriding unknown status to complete based on 100% progress for task {task_id}")
     
-    # If we have a model_url but status isn't complete, force complete status
-    if model_url and normalized_status != "complete":
+    # ROOT CAUSE FIX: According to Tripo API docs, output URLs are available even when status is "running"
+    # The key insight is that we should treat any task with a valid model URL as complete,
+    # regardless of what the status field says. This fixes the "stuck at 99%" issue.
+    if model_url:
+        # If we have a model URL, the task is effectively complete
         normalized_status = "complete"
         normalized_progress = 100
-        logger.info(f"Overriding status to complete because model_url is present for task {task_id}")
+        logger.info(f"Task {task_id} has model URL available - treating as complete regardless of API status")
     
-    # Prepare the result
+    # Prepare the result - ALWAYS include result_url if we have a model_url
+    # This is the key fix: don't wait for status to be "complete" to return the URL
     result = {
         "status": normalized_status,
         "progress": normalized_progress,
-        "result_url": model_url if normalized_status == "complete" else None,
+        "result_url": model_url,  # Include URL if available, regardless of status
     }
     
     # Add more detailed logging to show progress
