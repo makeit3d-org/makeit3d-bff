@@ -21,7 +21,6 @@ services:
       - "8000:8000"
     environment:
       # Pass environment variables to the backend service
-      # In a real scenario, use a proper secrets management solution
       - TRIPO_API_KEY=${TRIPO_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - STABILITY_API_KEY=${STABILITY_API_KEY}
@@ -29,9 +28,9 @@ services:
       - REPLICATE_API_KEY=${REPLICATE_API_KEY}
       - FLUX_API_KEY=${FLUX_API_KEY}
       - REGISTRATION_SECRET=${REGISTRATION_SECRET}
-      - DATABASE_URL=postgresql://postgres.ftnkfcuhjmmedmoekvwg:red.bpb6ywp.YEH@dhb@aws-0-us-east-2.pooler.supabase.com:6543/postgres
-      - SUPABASE_URL=https://ftnkfcuhjmmedmoekvwg.supabase.co
-      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0bmtmY3Voam1tZWRtb2VrdndnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTk1MDE4MiwiZXhwIjoyMDY1NTI2MTgyfQ.wJEUc8nK897kkjB3qNyvMe0Ff61Jkoaa6rW5sxwp4Yw
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - REDIS_URL=redis://redis:6379/0 # Redis service name as hostname
       - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
       - TEST_ASSETS_MODE=${TEST_ASSETS_MODE:-False}
@@ -54,9 +53,9 @@ services:
       - REPLICATE_API_KEY=${REPLICATE_API_KEY}
       - FLUX_API_KEY=${FLUX_API_KEY}
       - REGISTRATION_SECRET=${REGISTRATION_SECRET}
-      - DATABASE_URL=postgresql://postgres.ftnkfcuhjmmedmoekvwg:red.bpb6ywp.YEH@dhb@aws-0-us-east-2.pooler.supabase.com:6543/postgres
-      - SUPABASE_URL=https://ftnkfcuhjmmedmoekvwg.supabase.co
-      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0bmtmY3Voam1tZWRtb2VrdndnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTk1MDE4MiwiZXhwIjoyMDY1NTI2MTgyfQ.wJEUc8nK897kkjB3qNyvMe0Ff61Jkoaa6rW5sxwp4Yw
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - REDIS_URL=redis://redis:6379/0
       - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
       - TEST_ASSETS_MODE=${TEST_ASSETS_MODE:-False}
@@ -79,9 +78,9 @@ services:
       - REPLICATE_API_KEY=${REPLICATE_API_KEY}
       - FLUX_API_KEY=${FLUX_API_KEY}
       - REGISTRATION_SECRET=${REGISTRATION_SECRET}
-      - DATABASE_URL=postgresql://postgres.ftnkfcuhjmmedmoekvwg:red.bpb6ywp.YEH@dhb@aws-0-us-east-2.pooler.supabase.com:6543/postgres
-      - SUPABASE_URL=https://ftnkfcuhjmmedmoekvwg.supabase.co
-      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0bmtmY3Voam1tZWRtb2VrdndnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTk1MDE4MiwiZXhwIjoyMDY1NTI2MTgyfQ.wJEUc8nK897kkjB3qNyvMe0Ff61Jkoaa6rW5sxwp4Yw
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - REDIS_URL=redis://redis:6379/0
       - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
       - TEST_ASSETS_MODE=${TEST_ASSETS_MODE:-False}
@@ -104,9 +103,9 @@ services:
       - REPLICATE_API_KEY=${REPLICATE_API_KEY}
       - FLUX_API_KEY=${FLUX_API_KEY}
       - REGISTRATION_SECRET=${REGISTRATION_SECRET}
-      - DATABASE_URL=postgresql://postgres.ftnkfcuhjmmedmoekvwg:red.bpb6ywp.YEH@dhb@aws-0-us-east-2.pooler.supabase.com:6543/postgres
-      - SUPABASE_URL=https://ftnkfcuhjmmedmoekvwg.supabase.co
-      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0bmtmY3Voam1tZWRtb2VrdndnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTk1MDE4MiwiZXhwIjoyMDY1NTI2MTgyfQ.wJEUc8nK897kkjB3qNyvMe0Ff61Jkoaa6rW5sxwp4Yw
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - REDIS_URL=redis://redis:6379/0
       - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
       - TEST_ASSETS_MODE=${TEST_ASSETS_MODE:-False}

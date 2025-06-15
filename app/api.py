@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="MakeIT3D BFF API",
-    description="Backend for Frontend API for MakeIT3D platform",
+    title="MakeIt3D API",
+    description="Image processing API for MakeIt3D and Maxflow",
     version="1.0.0"
 )
 
@@ -38,19 +38,19 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Include routers
 app.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 app.include_router(generation_image.router, prefix="/generate", tags=["generation-images"])
-app.include_router(generation_model.router, prefix="/generate", tags=["generation-models"])
+# Temporarily hide generation_model router from docs while keeping functionality
+app.include_router(generation_model.router, prefix="/generate", tags=["generation-models"], include_in_schema=False)
 app.include_router(auth.router, prefix="/auth", tags=["authentication"])
 
 @app.get("/")
 async def root():
     """Root endpoint - returns API information."""
     return {
-        "message": "MakeIT3D BFF API",
+        "message": "MakeIt3D API",
         "version": "1.0.0",
         "endpoints": {
             "tasks": "/tasks",
             "generation_images": "/generate (image endpoints)",
-            "generation_models": "/generate (model endpoints)",
             "authentication": "/auth"
         }
     }
