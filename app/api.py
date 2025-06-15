@@ -6,8 +6,8 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import logging
 
-# Import routers - only tasks, generation_image, and generation_model are needed
-from routers import tasks, generation_image, generation_model
+# Import routers - tasks, generation_image, generation_model, and auth
+from routers import tasks, generation_image, generation_model, auth
 from config import settings
 
 # Configure logging
@@ -39,6 +39,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 app.include_router(generation_image.router, prefix="/generate", tags=["generation-images"])
 app.include_router(generation_model.router, prefix="/generate", tags=["generation-models"])
+app.include_router(auth.router, prefix="/auth", tags=["authentication"])
 
 @app.get("/")
 async def root():
@@ -49,7 +50,8 @@ async def root():
         "endpoints": {
             "tasks": "/tasks",
             "generation_images": "/generate (image endpoints)",
-            "generation_models": "/generate (model endpoints)"
+            "generation_models": "/generate (model endpoints)",
+            "authentication": "/auth"
         }
     }
 

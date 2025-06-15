@@ -235,6 +235,23 @@ class TaskStatusResponse(BaseModel):
 class ErrorResponse(BaseModel):
     detail: str
 
+# Authentication Schemas
+
+class RegisterAPIKeyRequest(BaseModel):
+    """Request schema for API key registration."""
+    verification_secret: str  # Shared secret for verification
+    tenant_type: Literal["shopify", "supabase_app", "custom", "development"]  # Type of tenant
+    tenant_identifier: str  # Unique identifier (store domain, app ID, etc.)
+    tenant_name: Optional[str] = None  # Human readable name
+    metadata: Optional[Dict[str, Any]] = None  # Additional tenant information
+
+class RegisterAPIKeyResponse(BaseModel):
+    """Response schema for API key registration."""
+    api_key: str  # Generated API key
+    tenant_id: str  # Tenant identifier
+    tenant_type: str  # Type of tenant
+    message: str  # Success message
+
 # OpenAI schemas
 
 class OpenAIResult(BaseModel):

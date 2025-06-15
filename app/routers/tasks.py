@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from celery_worker import celery_app # To get AsyncResult
 from schemas.generation_schemas import TaskStatusResponse # Define or reuse an appropriate response schema
 import supabase_handler
@@ -10,13 +10,18 @@ import base64 # For OpenAI, though asset is already stored by task. For Tripo, t
 from concurrent.futures import ThreadPoolExecutor
 from fastapi.concurrency import run_in_threadpool
 
+# Import optional authentication
+from auth import get_optional_tenant, TenantContext
+from typing import Optional
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/{celery_task_id}/status", response_model=TaskStatusResponse)
 async def get_task_status_endpoint(
     celery_task_id: str, 
-    service: str = Query(..., description="The AI service used for the task: 'openai' or 'tripoai'")
+    service: str = Query(..., description="The AI service used for the task: 'openai' or 'tripoai'"),
+    tenant: Optional[TenantContext] = Depends(get_optional_tenant)
 ):
     """
     Polls the status of an asynchronous task (Celery task).
@@ -24,8 +29,11 @@ async def get_task_status_endpoint(
     For TripoAI, it checks the Celery task result for the Tripo AI task ID, then polls Tripo AI.
     If Tripo AI task is complete, it downloads the asset, uploads to app's Supabase,
     updates the DB record, and returns the final Supabase URL.
+    
+    Authentication is optional - if provided, adds tenant context to logs.
     """
-    logger.info(f"Received status request for Celery task ID: {celery_task_id}, service: {service}")
+    tenant_info = f" from tenant: {tenant.tenant_id}" if tenant else " (no auth)"
+    logger.info(f"Received status request for Celery task ID: {celery_task_id}, service: {service}{tenant_info}")
 
     celery_task_result = celery_app.AsyncResult(celery_task_id)
 

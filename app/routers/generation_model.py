@@ -1,9 +1,12 @@
 import httpx
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Request
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Request, Depends
 from typing import List, Optional
 import logging
 
-# Test user ID for endpoints when auth is not implemented
+# Import authentication
+from auth import get_current_tenant, TenantContext
+
+# Test user ID for endpoints when auth is not implemented (kept for backward compatibility)
 TEST_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 # Explicitly import required schemas from the module (model-related only)
@@ -34,10 +37,14 @@ router = APIRouter()
 
 @router.post("/text-to-model", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
-async def generate_text_to_model_endpoint(request: Request, request_data: TextToModelRequest):
+async def generate_text_to_model_endpoint(
+    request: Request, 
+    request_data: TextToModelRequest,
+    tenant: TenantContext = Depends(get_current_tenant)
+):
     """Initiates 3D model generation from text using Tripo AI."""
-    logger.info(f"Received request for /generate/text-to-model for task_id: {request_data.task_id} using provider: {request_data.provider}")
-    user_id_from_auth = TEST_USER_ID
+    logger.info(f"Received request for /generate/text-to-model for task_id: {request_data.task_id} using provider: {request_data.provider} from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
 
     # Validate provider
     if request_data.provider != "tripo":
@@ -86,10 +93,14 @@ async def generate_text_to_model_endpoint(request: Request, request_data: TextTo
 
 @router.post("/image-to-model", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
-async def generate_image_to_model_endpoint(request: Request, request_data: ImageToModelRequest):
+async def generate_image_to_model_endpoint(
+    request: Request, 
+    request_data: ImageToModelRequest,
+    tenant: TenantContext = Depends(get_current_tenant)
+):
     """Initiates 3D model generation from multiple images (Supabase URLs) using multiple AI providers."""
-    logger.info(f"Received request for /generate/image-to-model for task_id: {request_data.task_id} using provider: {request_data.provider}")
-    user_id_from_auth = TEST_USER_ID
+    logger.info(f"Received request for /generate/image-to-model for task_id: {request_data.task_id} using provider: {request_data.provider} from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
 
     try:
         # Fetch input images
@@ -162,10 +173,14 @@ async def generate_image_to_model_endpoint(request: Request, request_data: Image
 
 @router.post("/refine-model", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_TRIPO_OTHER_REQUESTS_PER_MINUTE}/minute")
-async def refine_model_endpoint(request: Request, request_data: RefineModelRequest):
+async def refine_model_endpoint(
+    request: Request, 
+    request_data: RefineModelRequest,
+    tenant: TenantContext = Depends(get_current_tenant)
+):
     """Refines an existing 3D model using Tripo AI."""
-    logger.info(f"Received request for /refine-model for task_id: {request_data.task_id} using provider: {request_data.provider}")
-    user_id_from_auth = TEST_USER_ID
+    logger.info(f"Received request for /refine-model for task_id: {request_data.task_id} using provider: {request_data.provider} from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
 
     # Validate provider
     if request_data.provider != "tripo":

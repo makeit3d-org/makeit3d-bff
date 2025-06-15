@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0" # Default Redis URL for local development
     BFF_BASE_URL: str # Add setting for BFF base URL
     test_assets_mode: bool = False # Controls Supabase storage paths: test_outputs/ vs production paths
+    
+    # Environment Configuration
+    ENVIRONMENT: str = "production"  # "development" or "production" - affects API key requirements
+    
+    # Authentication Configuration
+    REGISTRATION_SECRET: str  # Shared secret for API key registration
 
     # Supabase Configuration
     SUPABASE_URL: str

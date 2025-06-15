@@ -1,10 +1,13 @@
 import httpx
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Request
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Request, Depends
 from typing import List, Optional
 import logging
 import base64
 
-# Test user ID for endpoints when auth is not implemented
+# Import authentication
+from auth import get_current_tenant, TenantContext
+
+# Test user ID for endpoints when auth is not implemented (kept for backward compatibility)
 TEST_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 # Explicitly import required schemas from the module (image-related only)
@@ -43,11 +46,12 @@ router = APIRouter()
 @limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
 async def generate_image_to_image_endpoint(
     request: Request, # FastAPI request object for context if needed (e.g., user)
-    request_data: ImageToImageRequest # Updated to use Pydantic model from request body
+    request_data: ImageToImageRequest, # Updated to use Pydantic model from request body
+    tenant: TenantContext = Depends(get_current_tenant) # Authentication dependency
 ):
     """Initiates concept image generation from an input image using multiple AI providers."""
-    logger.info(f"Received request for /generate/image-to-image for task_id: {request_data.task_id} using provider: {request_data.provider}")
-    user_id_from_auth = TEST_USER_ID
+    logger.info(f"Received request for /generate/image-to-image for task_id: {request_data.task_id} using provider: {request_data.provider} from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
 
     # Fetch the image from Supabase first
     try:
@@ -135,10 +139,14 @@ async def generate_image_to_image_endpoint(
 
 @router.post("/text-to-image", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
-async def generate_text_to_image_endpoint(request: Request, request_data: TextToImageRequest):
+async def generate_text_to_image_endpoint(
+    request: Request, 
+    request_data: TextToImageRequest,
+    tenant: TenantContext = Depends(get_current_tenant)
+):
     """Initiates 2D image generation from text using multiple AI providers."""
-    logger.info(f"Received request for /generate/text-to-image for task_id: {request_data.task_id} using provider: {request_data.provider}")
-    user_id_from_auth = TEST_USER_ID
+    logger.info(f"Received request for /generate/text-to-image for task_id: {request_data.task_id} using provider: {request_data.provider} from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
 
     # Validate provider
     if request_data.provider not in ["openai", "stability", "recraft", "flux"]:
@@ -220,10 +228,14 @@ async def generate_text_to_image_endpoint(request: Request, request_data: TextTo
         raise HTTPException(status_code=500, detail=f"Failed to process text-to-image request: {str(e)}")
 
 @router.post("/sketch-to-image", response_model=TaskIdResponse)
-async def generate_sketch_to_image_endpoint(request: Request, request_data: SketchToImageRequest):
+async def generate_sketch_to_image_endpoint(
+    request: Request, 
+    request_data: SketchToImageRequest,
+    tenant: TenantContext = Depends(get_current_tenant)
+):
     """Initiates 2D image generation from a single sketch image (Supabase URL) using Stability AI."""
-    logger.info(f"Received request for /generate/sketch-to-image for task_id: {request_data.task_id}")
-    user_id_from_auth = TEST_USER_ID
+    logger.info(f"Received request for /generate/sketch-to-image for task_id: {request_data.task_id} from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
 
     # Fetch the image from Supabase first
     try:
@@ -282,10 +294,14 @@ async def generate_sketch_to_image_endpoint(request: Request, request_data: Sket
         raise HTTPException(status_code=500, detail=f"Failed to process sketch-to-image request: {str(e)}")
 
 @router.post("/remove-background", response_model=TaskIdResponse)
-async def remove_background_endpoint(request: Request, request_data: RemoveBackgroundRequest):
+async def remove_background_endpoint(
+    request: Request, 
+    request_data: RemoveBackgroundRequest,
+    tenant: TenantContext = Depends(get_current_tenant)
+):
     """Remove background from an image using Stability AI or Recraft."""
-    logger.info(f"Received request for /remove-background for task_id: {request_data.task_id}")
-    user_id_from_auth = TEST_USER_ID
+    logger.info(f"Received request for /remove-background for task_id: {request_data.task_id} from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
 
     # Fetch the image from Supabase first
     try:
@@ -349,10 +365,14 @@ async def remove_background_endpoint(request: Request, request_data: RemoveBackg
 
 @router.post("/image-inpaint", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
-async def image_inpaint_endpoint(request: Request, request_data: ImageInpaintRequest):
+async def image_inpaint_endpoint(
+    request: Request, 
+    request_data: ImageInpaintRequest,
+    tenant: TenantContext = Depends(get_current_tenant)
+):
     """Inpaints an image using a mask with Recraft AI."""
-    logger.info(f"Received request for /image-inpaint for task_id: {request_data.task_id} using provider: {request_data.provider}")
-    user_id_from_auth = TEST_USER_ID
+    logger.info(f"Received request for /image-inpaint for task_id: {request_data.task_id} using provider: {request_data.provider} from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
 
     # Validate provider
     if request_data.provider != "recraft":
@@ -415,10 +435,15 @@ async def image_inpaint_endpoint(request: Request, request_data: ImageInpaintReq
 
 @router.post("/search-and-recolor", response_model=TaskIdResponse)
 @limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
-async def search_and_recolor_endpoint(request: Request, request_data: SearchAndRecolorRequest):
+async def search_and_recolor_endpoint(
+    request: Request, 
+    request_data: SearchAndRecolorRequest,
+    tenant: TenantContext = Depends(get_current_tenant)
+):
     """Search for objects in an image and recolor them using Stability AI."""
     operation_id = f"search-recolor-{request_data.task_id}"
-    logger.info(f"Received search-and-recolor request for task {request_data.task_id} (Operation ID: {operation_id})")
+    logger.info(f"Received search-and-recolor request for task {request_data.task_id} (Operation ID: {operation_id}) from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
     
     if request_data.provider != "stability":
         logger.error(f"Invalid provider '{request_data.provider}' for search-and-recolor. Only 'stability' is supported.")
@@ -439,7 +464,7 @@ async def search_and_recolor_endpoint(request: Request, request_data: SearchAndR
             prompt=request_data.prompt,
             style=request_data.style_preset,
             status="queued",
-            user_id="default_user_id",
+            user_id=user_id_from_auth,
             image_type="ai_generated",
             metadata={"async_mode": True, "provider": "stability", "operation": "search_and_recolor"}
         )
