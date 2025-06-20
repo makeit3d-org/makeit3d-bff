@@ -80,7 +80,7 @@ def test_upscale_endpoint():
             
             if response.status_code == 200:
                 response_data = response.json()
-                print(f"Success! Celery Task ID: {response_data.get('celery_task_id')}")
+                print(f"Success! Celery Task ID: {response_data.get('task_id')}")
                 print("✅ Endpoint structure is working correctly")
             else:
                 print(f"Error Response: {response.text}")

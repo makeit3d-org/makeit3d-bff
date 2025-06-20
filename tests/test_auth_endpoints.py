@@ -301,9 +301,9 @@ async def test_api_key_usage_with_generation(request):
         generation_time = time.time() - generation_start
 
     # Verify the generation request was accepted
-    assert "celery_task_id" in generation_result
-    celery_task_id = generation_result["celery_task_id"]
-    print(f"🆔 Generation Task ID: {celery_task_id}")
+    assert "task_id" in generation_result
+    task_id = generation_result["task_id"]
+    print(f"🆔 Generation Task ID: {task_id}")
     
     total_test_time = time.time() - start_time
     print(f"⏱️ TOTAL TEST TIME: {total_test_time:.2f}s")
@@ -319,7 +319,7 @@ async def test_api_key_usage_with_generation(request):
             "text_to_image": generation_endpoint
         },
         "generated_credentials": {"api_key": api_key, "tenant_id": tenant_id},
-        "task_ids": {"generation_task": celery_task_id}
+        "task_ids": {"generation_task": task_id}
     }
     print_test_summary(request.node.name, tenant_id, start_time, timings, locations) 
  

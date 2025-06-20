@@ -241,8 +241,8 @@ class ImageInpaintRequest(BaseModel):
 # Schemas for responses
 
 class TaskIdResponse(BaseModel):
-    """Standard task ID response. The celery_task_id is used for polling the status of the current AI operation."""
-    celery_task_id: str
+    """Standard task ID response. The task_id is used for polling the status of the current AI operation."""
+    task_id: str
 
 class TripoApiResponse(BaseModel):
     """Standard Tripo API response structure."""

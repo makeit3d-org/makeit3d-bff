@@ -45,12 +45,12 @@ async def test_generate_upscale_stability(request):
         api_response_time = time.time() - api_call_start
     print(f"🌐 API Response received in {api_response_time:.2f}s")
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Task ID: {task_id}")
 
     # 4. Wait for Celery task completion
     polling_start = time.time()
-    task_result_data = await wait_for_celery_task(celery_task_id, "Stability", total_timeout=180.0)
+    task_result_data = await wait_for_celery_task(task_id, "Stability", total_timeout=180.0)
     ai_processing_time = time.time() - polling_start
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
 
@@ -106,12 +106,12 @@ async def test_generate_upscale_recraft(request):
         api_response_time = time.time() - api_call_start
     print(f"🌐 API Response received in {api_response_time:.2f}s")
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Task ID: {task_id}")
 
     # 4. Wait for Celery task completion
     polling_start = time.time()
-    task_result_data = await wait_for_celery_task(celery_task_id, "Recraft", total_timeout=180.0)
+    task_result_data = await wait_for_celery_task(task_id, "Recraft", total_timeout=180.0)
     ai_processing_time = time.time() - polling_start
     print(f"🤖 Recraft AI Processing completed in {ai_processing_time:.2f}s")
 

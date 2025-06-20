@@ -21,6 +21,7 @@ from schemas.generation_schemas import (
 )
 from config import settings
 import supabase_handler
+from utils.image_processing import downscale_image, get_image_format_from_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -708,7 +709,6 @@ def generate_flux_image_task(self, image_db_id: str, image_data_b64: str, reques
 @celery_app.task(bind=True)
 def generate_downscale_image_task(self, image_db_id: str, image_data_b64: str, request_data_dict: dict):
     """Celery task to downscale images using basic image processing with Pillow."""
-    from utils.image_processing import downscale_image
     
     client_task_id = request_data_dict.get("task_id")
     celery_task_id = self.request.id
@@ -751,7 +751,6 @@ def generate_downscale_image_task(self, image_db_id: str, image_data_b64: str, r
                 content_type = "image/png"
             else:  # original format
                 # Try to detect original format for extension
-                from utils.image_processing import get_image_format_from_bytes
                 try:
                     original_format = get_image_format_from_bytes(image_bytes)
                     if original_format.upper() == 'JPEG':

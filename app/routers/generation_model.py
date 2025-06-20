@@ -79,7 +79,7 @@ async def generate_text_to_model_endpoint(
         )
 
         logger.info(f"Dispatched Tripo text-to-model Celery task {celery_task.id} for model_db_id: {model_db_id}")
-        return TaskIdResponse(celery_task_id=celery_task.id)
+        return TaskIdResponse(task_id=celery_task.id)
 
     except Exception as e:
         logger.error(f"Failed to dispatch Tripo text-to-model task for {request_data.task_id}: {e}", exc_info=True)

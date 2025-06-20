@@ -125,31 +125,31 @@ async def download_file(url: str, test_name: str, file_suffix: str):
     pytest.fail(f"Failed to download file after {attempts} attempts from URL: {url}")
 
 # --- Helper function to wait for synchronous Celery tasks ---
-async def wait_for_celery_task(celery_task_id: str, provider: str, poll_interval: int = 1, total_timeout: float = 300.0):
+async def wait_for_celery_task(task_id: str, provider: str, poll_interval: int = 1, total_timeout: float = 300.0):
     """
     Wait for a synchronous Celery task to complete (for Stability, Recraft, Flux).
     These providers complete their work within the Celery task and don't require status polling.
     """
     from app.celery_worker import celery_app
     
-    print(f"\n⏳ Waiting for {provider} Celery task {celery_task_id} to complete...")
-    logger.info(f"Waiting for {provider} Celery task {celery_task_id} to complete...")
+    print(f"\n⏳ Waiting for {provider} Celery task {task_id} to complete...")
+    logger.info(f"Waiting for {provider} Celery task {task_id} to complete...")
     start_time = time.time()
     
-    celery_result = celery_app.AsyncResult(celery_task_id)
+    celery_result = celery_app.AsyncResult(task_id)
     
     while time.time() - start_time < total_timeout:
         if celery_result.ready():
             if celery_result.failed():
                 error_info = str(celery_result.info) if celery_result.info else "Celery task failed without specific error info."
-                error_msg = f"❌ {provider} Celery task {celery_task_id} failed: {error_info}"
+                error_msg = f"❌ {provider} Celery task {task_id} failed: {error_info}"
                 print(error_msg)
                 logger.error(error_msg)
-                pytest.fail(f"{provider} task {celery_task_id} failed: {error_info}")
+                pytest.fail(f"{provider} task {task_id} failed: {error_info}")
             
             # Task completed successfully
             task_result_data = celery_result.result
-            complete_msg = f"✅ {provider} Celery task {celery_task_id} completed!"
+            complete_msg = f"✅ {provider} Celery task {task_id} completed!"
             print(complete_msg)
             logger.info(complete_msg)
             return task_result_data
@@ -158,10 +158,10 @@ async def wait_for_celery_task(celery_task_id: str, provider: str, poll_interval
         await asyncio.sleep(poll_interval)
     
     # Timeout reached
-    timeout_msg = f"⏰ {provider} Celery task {celery_task_id} timed out after {total_timeout} seconds"
+    timeout_msg = f"⏰ {provider} Celery task {task_id} timed out after {total_timeout} seconds"
     print(timeout_msg)
     logger.error(timeout_msg)
-    pytest.fail(f"{provider} task {celery_task_id} timed out after {total_timeout} seconds")
+    pytest.fail(f"{provider} task {task_id} timed out after {total_timeout} seconds")
 
 # --- Helper function to poll task status ---
 async def poll_task_status(task_id: str, service: str, poll_interval: int = 2, total_timeout: float = 300.0):
@@ -380,15 +380,15 @@ async def test_generate_image_to_image(request):
     print(f"🌐 API Response received in {api_response_time:.2f}s")
     logger.info(f"Received response: {result}")
 
-    assert "celery_task_id" in result # Celery task_id
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
-    logger.info(f"Received Celery task_id: {celery_task_id}")
+    assert "task_id" in result # Celery task_id
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
+    logger.info(f"Received Celery task_id: {task_id}")
 
     # Poll for task completion and get the result data
-    logger.info(f"Polling for completion of OpenAI task {celery_task_id}...")
+    logger.info(f"Polling for completion of OpenAI task {task_id}...")
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "openai", poll_interval=2, total_timeout=180.0)
+    task_result_data = await poll_task_status(task_id, "openai", poll_interval=2, total_timeout=180.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 OpenAI Processing completed in {ai_processing_time:.2f}s")
@@ -483,12 +483,12 @@ async def test_generate_image_to_image_stability(request):
         result = response.json()
         api_response_time = time.time() - api_call_start
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
 
     # Wait for Celery task completion (Stability is synchronous)
     polling_start = time.time()
-    task_result_data = await wait_for_celery_task(celery_task_id, "Stability", total_timeout=180.0)
+    task_result_data = await wait_for_celery_task(task_id, "Stability", total_timeout=180.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -564,12 +564,12 @@ async def test_generate_image_to_image_recraft(request):
         result = response.json()
         api_response_time = time.time() - api_call_start
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
 
     # Poll for completion
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "recraft", total_timeout=180.0)
+    task_result_data = await poll_task_status(task_id, "recraft", total_timeout=180.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Recraft AI Processing completed in {ai_processing_time:.2f}s")
@@ -629,14 +629,14 @@ async def test_generate_text_to_image(request):
     print(f"🌐 API Response received in {api_response_time:.2f}s")
     logger.info(f"Received response: {result}")
 
-    assert "celery_task_id" in result # This is the Celery task_id
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
-    logger.info(f"Received Celery task_id: {celery_task_id}")
+    assert "task_id" in result # This is the Celery task_id
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
+    logger.info(f"Received Celery task_id: {task_id}")
 
     # Poll for task completion and get result URL
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "openai", total_timeout=120.0)
+    task_result_data = await poll_task_status(task_id, "openai", total_timeout=120.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 OpenAI Processing completed in {ai_processing_time:.2f}s")
@@ -704,12 +704,12 @@ async def test_generate_text_to_image_stability(request):
         result = response.json()
         api_response_time = time.time() - api_call_start
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
 
     # Poll for completion
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "stability", total_timeout=120.0)
+    task_result_data = await poll_task_status(task_id, "stability", total_timeout=120.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -769,12 +769,12 @@ async def test_generate_text_to_image_recraft(request):
         result = response.json()
         api_response_time = time.time() - api_call_start
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
 
     # Poll for completion
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "recraft", total_timeout=120.0)
+    task_result_data = await poll_task_status(task_id, "recraft", total_timeout=120.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Recraft AI Processing completed in {ai_processing_time:.2f}s")
@@ -835,14 +835,14 @@ async def test_generate_text_to_model(request):
     print(f"🌐 API Response received in {api_response_time:.2f}s")
     logger.info(f"Received response: {result}")
 
-    assert "celery_task_id" in result # This is the Celery task_id
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
-    logger.info(f"Received Celery task_id: {celery_task_id}")
+    assert "task_id" in result # This is the Celery task_id
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
+    logger.info(f"Received Celery task_id: {task_id}")
 
     # Poll for task completion and get result URL
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "tripoai", total_timeout=300.0)
+    task_result_data = await poll_task_status(task_id, "tripoai", total_timeout=300.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Tripo AI Processing completed in {ai_processing_time:.2f}s")
@@ -939,14 +939,14 @@ async def test_generate_image_to_model(request):
     print(f"🌐 API Response received in {api_response_time:.2f}s")
     logger.info(f"Received response: {result}")
 
-    assert "celery_task_id" in result
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
-    logger.info(f"Received Celery task_id: {celery_task_id}")
+    assert "task_id" in result
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
+    logger.info(f"Received Celery task_id: {task_id}")
 
     # Poll for task completion
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "tripoai", total_timeout=300.0)
+    task_result_data = await poll_task_status(task_id, "tripoai", total_timeout=300.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Tripo AI Processing completed in {ai_processing_time:.2f}s")
@@ -1035,12 +1035,12 @@ async def test_generate_image_to_model_stability(request):
         result = response.json()
         api_response_time = time.time() - api_call_start
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
 
     # Poll for completion
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "stability", total_timeout=300.0)
+    task_result_data = await poll_task_status(task_id, "stability", total_timeout=300.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -1130,14 +1130,14 @@ async def test_generate_sketch_to_image(request):
     print(f"🌐 API Response received in {api_response_time:.2f}s")
     logger.info(f"Received response: {result}")
 
-    assert "celery_task_id" in result
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
-    logger.info(f"Received Celery task_id: {celery_task_id}")
+    assert "task_id" in result
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
+    logger.info(f"Received Celery task_id: {task_id}")
 
     # Poll for task completion
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "stability", total_timeout=300.0)
+    task_result_data = await poll_task_status(task_id, "stability", total_timeout=300.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -1224,12 +1224,12 @@ async def test_generate_remove_background_stability(request):
         result = response.json()
         api_response_time = time.time() - api_call_start
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
 
     # Poll for completion
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "stability", total_timeout=120.0)
+    task_result_data = await poll_task_status(task_id, "stability", total_timeout=120.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -1301,12 +1301,12 @@ async def test_generate_remove_background_recraft(request):
         result = response.json()
         api_response_time = time.time() - api_call_start
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
 
     # Poll for completion
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "recraft", total_timeout=120.0)
+    task_result_data = await poll_task_status(task_id, "recraft", total_timeout=120.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Recraft AI Processing completed in {ai_processing_time:.2f}s")
@@ -1410,14 +1410,14 @@ async def test_generate_multiview_to_model(request):
     logger.info(f"API RESPONSE TIME: {api_response_time:.2f}s")
     logger.info(f"Received response: {result}")
 
-    assert "celery_task_id" in result
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
-    logger.info(f"Received Celery task_id: {celery_task_id}")
+    assert "task_id" in result
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
+    logger.info(f"Received Celery task_id: {task_id}")
 
     # Poll for task completion with extended timeout for multiview processing
     polling_start = time.time()
-    task_result_data = await poll_task_status(celery_task_id, "tripoai", total_timeout=600.0)  # Extended timeout
+    task_result_data = await poll_task_status(task_id, "tripoai", total_timeout=600.0)  # Extended timeout
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Tripo AI Multiview Processing completed in {ai_processing_time:.2f}s")
@@ -1540,12 +1540,12 @@ async def test_generate_image_inpaint(request):
             response.raise_for_status()
             response_data = response.json()
             
-        celery_task_id = response_data.get("celery_task_id")
-        if not celery_task_id:
-            raise Exception("No celery_task_id in response")
+        task_id = response_data.get("task_id")
+        if not task_id:
+            raise Exception("No task_id in response")
             
         timings["BFF API Call"] = f"{time.time() - step_start_time:.2f}s"
-        print(f"✅ BFF responded with Celery task ID: {celery_task_id}")
+        print(f"✅ BFF responded with Celery task ID: {task_id}")
         
     except Exception as e:
         timings["BFF API Call"] = f"Failed: {e}"
@@ -1557,7 +1557,7 @@ async def test_generate_image_inpaint(request):
     print("⏳ Polling for task completion...")
     
     try:
-        final_status = await poll_task_status(celery_task_id, "openai", poll_interval=3, total_timeout=120.0)
+        final_status = await poll_task_status(task_id, "openai", poll_interval=3, total_timeout=120.0)
         timings["Task Polling"] = f"{time.time() - step_start_time:.2f}s"
         
         if final_status["status"] != "complete":

@@ -47,15 +47,15 @@ async def test_generate_downscale_basic(request):
     print(f"🌐 API Response received in {api_response_time:.2f}s")
     logger.info(f"Received response: {result}")
 
-    assert "celery_task_id" in result
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
-    logger.info(f"Received Celery task_id: {celery_task_id}")
+    assert "task_id" in result
+    task_id = result["task_id"]
+    print(f"🆔 Task ID: {task_id}")
+    logger.info(f"Received task_id: {task_id}")
 
     # Wait for Celery task completion (Downscale is synchronous processing)
     polling_start = time.time()
     from app.celery_worker import celery_app
-    celery_result = celery_app.AsyncResult(celery_task_id)
+    celery_result = celery_app.AsyncResult(task_id)
     
     # Wait for the task to complete
     max_wait_time = 120  # 2 minutes should be plenty for downscaling
@@ -136,13 +136,13 @@ async def test_generate_downscale_square_mode(request):
         result = response.json()
         api_response_time = time.time() - api_call_start
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Task ID: {task_id}")
 
     # Wait for completion
     polling_start = time.time()
     from app.celery_worker import celery_app
-    celery_result = celery_app.AsyncResult(celery_task_id)
+    celery_result = celery_app.AsyncResult(task_id)
     
     max_wait_time = 120
     poll_interval = 2
@@ -211,13 +211,13 @@ async def test_generate_downscale_format_conversion(request):
         result = response.json()
         api_response_time = time.time() - api_call_start
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Task ID: {task_id}")
 
     # Wait for completion
     polling_start = time.time()
     from app.celery_worker import celery_app
-    celery_result = celery_app.AsyncResult(celery_task_id)
+    celery_result = celery_app.AsyncResult(task_id)
     
     max_wait_time = 120
     poll_interval = 2

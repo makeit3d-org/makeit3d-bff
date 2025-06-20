@@ -123,31 +123,31 @@ async def download_file(url: str, test_name: str, file_suffix: str):
     pytest.fail(f"Failed to download file after {attempts} attempts from URL: {url}")
 
 # --- Helper function to wait for synchronous Celery tasks ---
-async def wait_for_celery_task(celery_task_id: str, provider: str, poll_interval: int = 1, total_timeout: float = 300.0):
+async def wait_for_celery_task(task_id: str, provider: str, poll_interval: int = 1, total_timeout: float = 300.0):
     """
     Wait for a synchronous Celery task to complete (for Stability, Recraft, Flux).
     These providers complete their work within the Celery task and don't require status polling.
     """
     from app.celery_worker import celery_app
     
-    print(f"\n⏳ Waiting for {provider} Celery task {celery_task_id} to complete...")
-    logger.info(f"Waiting for {provider} Celery task {celery_task_id} to complete...")
+    print(f"\n⏳ Waiting for {provider} Celery task {task_id} to complete...")
+    logger.info(f"Waiting for {provider} Celery task {task_id} to complete...")
     start_time = time.time()
     
-    celery_result = celery_app.AsyncResult(celery_task_id)
+    celery_result = celery_app.AsyncResult(task_id)
     
     while time.time() - start_time < total_timeout:
         if celery_result.ready():
             if celery_result.failed():
                 error_info = str(celery_result.info) if celery_result.info else "Celery task failed without specific error info."
-                error_msg = f"❌ {provider} Celery task {celery_task_id} failed: {error_info}"
+                error_msg = f"❌ {provider} Celery task {task_id} failed: {error_info}"
                 print(error_msg)
                 logger.error(error_msg)
-                pytest.fail(f"{provider} task {celery_task_id} failed: {error_info}")
+                pytest.fail(f"{provider} task {task_id} failed: {error_info}")
             
             # Task completed successfully
             task_result_data = celery_result.result
-            complete_msg = f"✅ {provider} Celery task {celery_task_id} completed!"
+            complete_msg = f"✅ {provider} Celery task {task_id} completed!"
             print(complete_msg)
             logger.info(complete_msg)
             return task_result_data
@@ -156,10 +156,10 @@ async def wait_for_celery_task(celery_task_id: str, provider: str, poll_interval
         await asyncio.sleep(poll_interval)
     
     # Timeout reached
-    timeout_msg = f"⏰ {provider} Celery task {celery_task_id} timed out after {total_timeout} seconds"
+    timeout_msg = f"⏰ {provider} Celery task {task_id} timed out after {total_timeout} seconds"
     print(timeout_msg)
     logger.error(timeout_msg)
-    pytest.fail(f"{provider} task {celery_task_id} timed out after {total_timeout} seconds")
+    pytest.fail(f"{provider} task {task_id} timed out after {total_timeout} seconds")
 
 # --- Helper function to poll task status ---
 async def poll_task_status(task_id: str, service: str, poll_interval: int = 2, total_timeout: float = 300.0):

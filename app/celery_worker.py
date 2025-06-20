@@ -41,6 +41,7 @@ celery_app.conf.task_routes = {
     'tasks.generation_image_tasks.generate_stability_image_task': {'queue': 'default'},
     'tasks.generation_image_tasks.generate_recraft_image_task': {'queue': 'default'},
     'tasks.generation_image_tasks.generate_flux_image_task': {'queue': 'default'},
+    'tasks.generation_image_tasks.generate_downscale_image_task': {'queue': 'default'},
     'tasks.generation_model_tasks.generate_stability_model_task': {'queue': 'default'},
     'tasks.generation_model_tasks.generate_tripo_text_to_model_task': {'queue': 'tripo_other_queue'},
     'tasks.generation_model_tasks.generate_tripo_image_to_model_task': {'queue': 'tripo_other_queue'},

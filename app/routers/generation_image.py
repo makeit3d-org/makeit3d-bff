@@ -138,7 +138,7 @@ async def generate_image_to_image_endpoint(
         logger.error(f"Failed to update Supabase record {image_db_id} with Celery task ID {celery_task.id}: {e}", exc_info=True)
         # Potentially raise an alert or specific monitoring event here.
 
-    return TaskIdResponse(celery_task_id=celery_task.id)
+    return TaskIdResponse(task_id=celery_task.id)
 
 @router.post("/text-to-image", response_model=TaskIdResponse, include_in_schema=False)
 @limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
@@ -216,7 +216,7 @@ async def generate_text_to_image_endpoint(
         )
         logger.info(f"Updated image record {image_db_id} with Celery task ID {celery_task.id}")
         
-        return TaskIdResponse(celery_task_id=celery_task.id)
+        return TaskIdResponse(task_id=celery_task.id)
 
     except HTTPException:
         raise
@@ -282,7 +282,7 @@ async def generate_sketch_to_image_endpoint(
         )
         logger.info(f"Updated image record {image_db_id} with Celery task ID {celery_task.id}")
 
-        return TaskIdResponse(celery_task_id=celery_task.id)
+        return TaskIdResponse(task_id=celery_task.id)
 
     except HTTPException:
         raise
@@ -355,7 +355,7 @@ async def remove_background_endpoint(
             status="processing",
             ai_service_task_id=celery_task.id
         )
-        return TaskIdResponse(celery_task_id=celery_task.id)
+        return TaskIdResponse(task_id=celery_task.id)
 
     except HTTPException:
         raise
@@ -425,7 +425,7 @@ async def image_inpaint_endpoint(
             status="processing",
             ai_service_task_id=celery_task.id
         )
-        return TaskIdResponse(celery_task_id=celery_task.id)
+        return TaskIdResponse(task_id=celery_task.id)
 
     except HTTPException:
         raise
@@ -496,7 +496,7 @@ async def search_and_recolor_endpoint(
         )
         logger.info(f"Updated image DB record {image_db_id} with Celery task ID {celery_task_id}")
 
-        return TaskIdResponse(celery_task_id=celery_task_id)
+        return TaskIdResponse(task_id=celery_task_id)
 
     except HTTPException:
         raise
@@ -569,7 +569,7 @@ async def upscale_endpoint(
             status="processing",
             ai_service_task_id=celery_task.id
         )
-        return TaskIdResponse(celery_task_id=celery_task.id)
+        return TaskIdResponse(task_id=celery_task.id)
 
     except HTTPException:
         raise
@@ -665,7 +665,7 @@ async def downscale_endpoint(
     except Exception as e:
         logger.error(f"Failed to update Supabase record {image_db_id} with Celery task ID {celery_task.id}: {e}", exc_info=True)
     
-    return TaskIdResponse(celery_task_id=celery_task.id)
+    return TaskIdResponse(task_id=celery_task.id)
 
 # The /select-concept endpoint and its associated Celery task import have been removed.
 # The SelectConceptRequest schema import is also removed from app.schemas.generation_schemas. 

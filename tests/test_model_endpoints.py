@@ -46,17 +46,17 @@ async def test_generate_text_to_model(request):
     print(f"🌐 API Response received in {api_response_time:.2f}s")
     logger.info(f"Received response: {result}")
 
-    assert "celery_task_id" in result # This is the Celery task_id
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
-    logger.info(f"Received Celery task_id: {celery_task_id}")
+    assert "task_id" in result # This is the Celery task_id
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
+    logger.info(f"Received Celery task_id: {task_id}")
 
     # Wait for Celery task completion (Tripo polling is handled internally by the Celery task)
     polling_start = time.time()
     
     # For Tripo, the Celery task handles the async polling internally and completes when done
     from app.celery_worker import celery_app
-    celery_result = celery_app.AsyncResult(celery_task_id)
+    celery_result = celery_app.AsyncResult(task_id)
     
     # Wait for the task to complete with extended timeout for 3D model generation
     max_wait_time = 600  # 10 minutes for text-to-model
@@ -171,16 +171,16 @@ async def test_generate_image_to_model(request):
     print(f"🌐 API Response received in {api_response_time:.2f}s")
     logger.info(f"Received response: {result}")
 
-    assert "celery_task_id" in result
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
-    logger.info(f"Received Celery task_id: {celery_task_id}")
+    assert "task_id" in result
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
+    logger.info(f"Received Celery task_id: {task_id}")
 
     # Wait for Celery task completion (Tripo polling is handled internally by the Celery task)
     polling_start = time.time()
     
     from app.celery_worker import celery_app
-    celery_result = celery_app.AsyncResult(celery_task_id)
+    celery_result = celery_app.AsyncResult(task_id)
     
     # Wait for the task to complete with extended timeout for 3D model generation
     max_wait_time = 600  # 10 minutes for image-to-model
@@ -287,12 +287,12 @@ async def test_generate_image_to_model_stability(request):
         result = response.json()
         api_response_time = time.time() - api_call_start
 
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
 
     # Wait for Celery task completion (Stability is synchronous)
     polling_start = time.time()
-    task_result_data = await wait_for_celery_task(celery_task_id, "Stability", total_timeout=300.0)
+    task_result_data = await wait_for_celery_task(task_id, "Stability", total_timeout=300.0)
     ai_processing_time = time.time() - polling_start
     
     print(f"🤖 Stability AI Processing completed in {ai_processing_time:.2f}s")
@@ -403,16 +403,16 @@ async def test_generate_multiview_to_model(request):
     logger.info(f"API RESPONSE TIME: {api_response_time:.2f}s")
     logger.info(f"Received response: {result}")
 
-    assert "celery_task_id" in result
-    celery_task_id = result["celery_task_id"]
-    print(f"🆔 Celery Task ID: {celery_task_id}")
-    logger.info(f"Received Celery task_id: {celery_task_id}")
+    assert "task_id" in result
+    task_id = result["task_id"]
+    print(f"🆔 Celery Task ID: {task_id}")
+    logger.info(f"Received Celery task_id: {task_id}")
 
     # Wait for Celery task completion (Tripo polling is handled internally by the Celery task)
     polling_start = time.time()
     
     from app.celery_worker import celery_app
-    celery_result = celery_app.AsyncResult(celery_task_id)
+    celery_result = celery_app.AsyncResult(task_id)
     
     # Wait for the task to complete with extended timeout for multiview processing
     max_wait_time = 900  # 15 minutes for multiview (longer than single image)

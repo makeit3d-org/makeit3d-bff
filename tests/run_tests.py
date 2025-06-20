@@ -107,28 +107,78 @@ def list_available_tests(test_path: str = "/tests/test_endpoints.py") -> None:
         # Parse the output to extract test names
         test_lines = result.stdout.strip().split('\n')
         tests = []
+        current_file = ""
         
         for line in test_lines:
+            # Extract the file name if present
+            if "::" in line and "/" in line:
+                file_match = re.search(r'(/tests/test_[^:]+\.py)', line)
+                if file_match:
+                    new_file = file_match.group(1)
+                    if new_file != current_file:
+                        current_file = new_file
+                        if tests:  # Add separator between files
+                            tests.append(("separator", current_file))
+                        else:
+                            tests.append(("file_header", current_file))
+            
             # Match test function names (assumes Python test naming conventions)
             match = re.search(r'::([a-zA-Z0-9_]+)(\s|$)', line)
             if match:
-                tests.append(match.group(1))
+                tests.append(("test", match.group(1)))
         
         if tests:
             print_colored(f"Available tests in {test_path}:", Colors.BLUE)
-            for i, test in enumerate(tests, 1):
-                print_colored(f"  {i}. {test}", Colors.CYAN)
+            current_file_shown = ""
+            for i, (test_type, test_name) in enumerate(tests):
+                if test_type == "file_header":
+                    print_colored(f"\n📁 {test_name}:", Colors.YELLOW)
+                    current_file_shown = test_name
+                elif test_type == "separator":
+                    print_colored(f"\n📁 {test_name}:", Colors.YELLOW)
+                    current_file_shown = test_name
+                elif test_type == "test":
+                    print_colored(f"  • {test_name}", Colors.CYAN)
         else:
             print_colored(f"No tests found in {test_path}", Colors.YELLOW)
             
     except Exception as e:
         print_colored(f"Error listing tests: {str(e)}", Colors.RED)
 
+def list_all_test_files() -> None:
+    """List all available test files in the tests directory"""
+    cmd = ["docker-compose", "exec", "backend", "bash", "-c", "find /tests -name 'test_*.py' -type f | sort"]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print_colored(f"Error finding test files:\n{result.stderr}", Colors.RED)
+            return
+        
+        test_files = [f.strip() for f in result.stdout.strip().split('\n') if f.strip()]
+        
+        if test_files:
+            print_colored("Available test files:", Colors.BLUE)
+            for i, test_file in enumerate(test_files, 1):
+                filename = test_file.split('/')[-1]
+                print_colored(f"  {i}. {filename} ({test_file})", Colors.CYAN)
+            print_colored("\nTo list tests in a specific file:", Colors.YELLOW)
+            print_colored("  ./tests/run_tests.py -l <test_file_path>", Colors.GREEN)
+            print_colored("\nTo run tests from a specific file:", Colors.YELLOW)
+            print_colored("  ./tests/run_tests.py <test_file_path>", Colors.GREEN)
+        else:
+            print_colored("No test files found", Colors.YELLOW)
+            
+    except Exception as e:
+        print_colored(f"Error listing test files: {str(e)}", Colors.RED)
+
 def main() -> int:
     """Main entry point"""
     parser = argparse.ArgumentParser(description="MakeIt3D Backend Test Runner (Python)")
     parser.add_argument("-t", "--test", help="Specific test function to run")
     parser.add_argument("-l", "--list", action="store_true", help="List available tests")
+    parser.add_argument("-a", "--all-files", action="store_true", help="List all available test files")
     parser.add_argument("-s", "--show-logs", action="store_true", help="Show logs during test execution")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("-f", "--fail-fast", action="store_true", help="Stop on first failure")
@@ -148,6 +198,11 @@ def main() -> int:
         print_colored("Please start the services with:", Colors.YELLOW)
         print_colored("docker-compose up -d", Colors.GREEN)
         return 1
+    
+    # List all test files if requested
+    if args.all_files:
+        list_all_test_files()
+        return 0
     
     # List tests if requested
     if args.list:
