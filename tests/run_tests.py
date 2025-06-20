@@ -78,8 +78,8 @@ def run_tests(
     else:
         final_test_path = test_path
     
-    # Build the full command
-    cmd = ["docker-compose", "exec", "backend", "pytest", final_test_path] + pytest_args
+    # Build the full command with proper Python path
+    cmd = ["docker-compose", "exec", "backend", "bash", "-c", f"cd / && PYTHONPATH=/app python -m pytest {final_test_path} {' '.join(pytest_args)}"]
     
     # Print the command being run
     print_colored(f"Running: {' '.join(cmd)}", Colors.BLUE)
@@ -93,9 +93,9 @@ def run_tests(
         print_colored("\nTest run interrupted by user", Colors.YELLOW)
         return 130  # Standard exit code for Ctrl+C
 
-def list_available_tests(test_path: str = "tests/test_endpoints.py") -> None:
+def list_available_tests(test_path: str = "/tests/test_endpoints.py") -> None:
     """List all available tests in the specified test path"""
-    cmd = ["docker-compose", "exec", "backend", "pytest", test_path, "--collect-only", "-q"]
+    cmd = ["docker-compose", "exec", "backend", "bash", "-c", f"cd / && PYTHONPATH=/app python -m pytest {test_path} --collect-only -q"]
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -132,7 +132,7 @@ def main() -> int:
     parser.add_argument("-s", "--show-logs", action="store_true", help="Show logs during test execution")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("-f", "--fail-fast", action="store_true", help="Stop on first failure")
-    parser.add_argument("test_file", nargs="?", default="tests/test_endpoints.py", help="Test file to run (default: tests/test_endpoints.py)")
+    parser.add_argument("test_file", nargs="?", default="/tests/test_endpoints.py", help="Test file to run (default: /tests/test_endpoints.py)")
     
     args = parser.parse_args()
     

@@ -33,5 +33,8 @@ eventlet==0.36.1
 # AI image generation
 replicate
 
+# Image processing
+Pillow==10.4.0
+
 # Additional dependencies that might be needed
 typing-extensions==4.13.2 

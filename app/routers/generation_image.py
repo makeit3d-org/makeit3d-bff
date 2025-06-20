@@ -18,6 +18,8 @@ from schemas.generation_schemas import (
     RemoveBackgroundRequest,
     ImageInpaintRequest,
     SearchAndRecolorRequest,
+    UpscaleRequest,
+    DownscaleRequest,
     TaskIdResponse,
 )
 
@@ -35,7 +37,8 @@ from tasks.generation_image_tasks import (
     generate_openai_image_task,
     generate_stability_image_task,
     generate_recraft_image_task,
-    generate_flux_image_task
+    generate_flux_image_task,
+    generate_downscale_image_task
 )
 
 logger = logging.getLogger(__name__)
@@ -504,6 +507,165 @@ async def search_and_recolor_endpoint(
             except: pass
         raise HTTPException(status_code=500, detail=f"Failed to process search-and-recolor request: {str(e)}")
 
+@router.post("/upscale", response_model=TaskIdResponse)
+@limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
+async def upscale_endpoint(
+    request: Request, 
+    request_data: UpscaleRequest,
+    tenant: TenantContext = Depends(get_current_tenant)
+):
+    """Upscale an image using Stability AI or Recraft AI."""
+    logger.info(f"Received request for /upscale for task_id: {request_data.task_id} using provider: {request_data.provider} from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
+
+    # Validate provider
+    if request_data.provider not in ["stability", "recraft"]:
+        raise HTTPException(status_code=400, detail="Upscale supports 'stability' and 'recraft' providers")
+
+    # Fetch the image from Supabase first
+    try:
+        image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
+        logger.info(f"Successfully fetched input image for upscale task {request_data.task_id}")
+    except HTTPException as e:
+        logger.error(f"Failed to fetch input image from Supabase for upscale task {request_data.task_id}: {e.detail}")
+        raise HTTPException(status_code=404, detail="Failed to fetch input image from Supabase for upscale processing.")
+
+    try:
+        # Create the record in images table before dispatching the task
+        db_record = await supabase_handler.create_image_record(
+            task_id=request_data.task_id,
+            prompt="Upscale image",
+            style=None,
+            status="pending",
+            user_id=user_id_from_auth,
+            image_type="ai_generated",
+            metadata={"provider": request_data.provider, "operation": "upscale"}
+        )
+        image_db_id = db_record["id"]
+        logger.info(f"Created image record {image_db_id} for upscale task {request_data.task_id}")
+
+        if request_data.provider == "stability":
+            celery_task = generate_stability_image_task.delay(
+                image_db_id,
+                base64.b64encode(image_bytes).decode('utf-8'),
+                request_data.model_dump(),
+                "upscale"
+            )
+        elif request_data.provider == "recraft":
+            celery_task = generate_recraft_image_task.delay(
+                image_db_id,
+                base64.b64encode(image_bytes).decode('utf-8'),
+                request_data.model_dump(),
+                "upscale"
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported provider for upscale: {request_data.provider}")
+            
+        logger.info(f"Celery task ID: {celery_task.id} for image_db_id: {image_db_id}")
+
+        await supabase_handler.update_image_record(
+            task_id=request_data.task_id,
+            image_id=image_db_id,
+            status="processing",
+            ai_service_task_id=celery_task.id
+        )
+        return TaskIdResponse(celery_task_id=celery_task.id)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in /upscale endpoint for task {request_data.task_id}: {e}", exc_info=True)
+        if 'image_db_id' in locals() and image_db_id:
+            try: await supabase_handler.update_image_record(task_id=request_data.task_id, image_id=image_db_id, status="failed")
+            except: pass
+        raise HTTPException(status_code=500, detail=f"Failed to process upscale request: {str(e)}")
+
+@router.post("/downscale", response_model=TaskIdResponse)
+@limiter.limit("30/minute")  # More permissive rate limit for basic image processing
+async def downscale_endpoint(
+    request: Request,
+    request_data: DownscaleRequest,
+    tenant: TenantContext = Depends(get_current_tenant)
+):
+    """Downscale images to specified file size with aspect ratio control using basic image processing."""
+    logger.info(f"Received request for /generate/downscale for task_id: {request_data.task_id} from tenant: {tenant.tenant_id}")
+    user_id_from_auth = tenant.get_user_id()
+    
+    # Fetch the image from Supabase first
+    try:
+        image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
+        logger.info(f"Successfully fetched input image for task {request_data.task_id} from: {request_data.input_image_asset_url}")
+        
+        # Validate file size (max 20MB)
+        image_size_mb = len(image_bytes) / (1024 * 1024)
+        if image_size_mb > 20.0:
+            raise HTTPException(
+                status_code=413, 
+                detail=f"Input image size ({image_size_mb:.1f}MB) exceeds maximum allowed size (20MB)"
+            )
+        
+        # Check if image is already smaller than target
+        if image_size_mb <= request_data.max_size_mb:
+            logger.info(f"Input image ({image_size_mb:.2f}MB) is already smaller than target ({request_data.max_size_mb}MB)")
+            # Don't reject - still process for potential square padding and format conversion
+        
+    except HTTPException as e:
+        logger.error(f"Failed to fetch image from Supabase for task {request_data.task_id}: {e.detail}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error fetching image for task {request_data.task_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve input image.")
+    
+    try:
+        # Create the record in images table before dispatching the task
+        db_record = await supabase_handler.create_image_record(
+            task_id=request_data.task_id,
+            prompt=f"Downscale to {request_data.max_size_mb}MB ({request_data.aspect_ratio_mode})",
+            style=None,  # Don't use a computed style that might violate DB constraints
+            status="pending",
+            user_id=user_id_from_auth,
+            image_type="upload",  # This is processing an uploaded/existing image
+            metadata={
+                "processing_type": "downscale",
+                "target_size_mb": request_data.max_size_mb,
+                "aspect_ratio_mode": request_data.aspect_ratio_mode,
+                "output_format": request_data.output_format,
+                "original_size_mb": round(image_size_mb, 2)
+            }
+        )
+        image_db_id = db_record["id"]
+        logger.info(f"Created image record {image_db_id} for task {request_data.task_id}")
+    except HTTPException as e:
+        logger.error(f"Failed to create Supabase record for task {request_data.task_id}: {e.detail}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error creating Supabase record for task {request_data.task_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to initialize task record.")
+    
+    logger.info(f"Sending downscale task to Celery for db_id: {image_db_id}")
+    
+    # Dispatch Celery task
+    celery_task = generate_downscale_image_task.delay(
+        image_db_id,
+        base64.b64encode(image_bytes).decode('utf-8'),
+        request_data.model_dump()
+    )
+    
+    logger.info(f"Celery task ID: {celery_task.id} for image_db_id: {image_db_id}")
+    
+    # Update the Supabase record with the Celery task ID and set status to 'processing'
+    try:
+        await supabase_handler.update_image_record(
+            task_id=request_data.task_id,
+            image_id=image_db_id,
+            status="processing",
+            ai_service_task_id=celery_task.id
+        )
+        logger.info(f"Updated image record {image_db_id} with Celery task ID {celery_task.id}")
+    except Exception as e:
+        logger.error(f"Failed to update Supabase record {image_db_id} with Celery task ID {celery_task.id}: {e}", exc_info=True)
+    
+    return TaskIdResponse(celery_task_id=celery_task.id)
 
 # The /select-concept endpoint and its associated Celery task import have been removed.
 # The SelectConceptRequest schema import is also removed from app.schemas.generation_schemas. 

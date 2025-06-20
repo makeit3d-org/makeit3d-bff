@@ -203,6 +203,41 @@ class StabilityClient:
             response = await client.post(endpoint, headers=headers, files=files, data=data)
             response.raise_for_status()
             return response.content
+    
+    async def upscale(
+        self,
+        image_bytes: bytes,
+        model: str = "fast",
+        output_format: str = "png"
+    ) -> bytes:
+        """
+        Upscale image using Stability AI Fast Upscaler.
+        Enhances image resolution by 4x using predictive and generative AI.
+        Currently only supports 'fast' model.
+        """
+        # Currently only fast upscaler is available in the API
+        if model != "fast":
+            raise ValueError("Stability AI currently only supports 'fast' upscale model")
+            
+        endpoint = f"{self.base_url}/v2beta/stable-image/upscale/fast"
+        
+        headers = {
+            "authorization": f"Bearer {self.api_key}",
+            "accept": "image/*",
+        }
+        
+        files = {
+            "image": ("image.png", BytesIO(image_bytes), "image/png")
+        }
+        
+        data = {
+            "output_format": output_format
+        }
+        
+        async with httpx.AsyncClient(timeout=120.0) as client:  # Longer timeout for upscaling
+            response = await client.post(endpoint, headers=headers, files=files, data=data)
+            response.raise_for_status()
+            return response.content
 
     async def search_and_recolor(
         self,

@@ -15,7 +15,9 @@ from schemas.generation_schemas import (
     SketchToImageRequest,
     RemoveBackgroundRequest,
     ImageInpaintRequest,
-    SearchAndRecolorRequest
+    SearchAndRecolorRequest,
+    UpscaleRequest,
+    DownscaleRequest
 )
 from config import settings
 import supabase_handler
@@ -275,6 +277,13 @@ def generate_stability_image_task(self, image_db_id: str, image_data_b64: str, r
                     output_format=request_data.output_format,
                     style_preset=request_data.style_preset
                 )
+            elif operation_type == "upscale":
+                request_data = UpscaleRequest(**request_data_dict)
+                result_bytes = await stability_client.upscale(
+                    image_bytes=image_bytes,
+                    model=request_data.model,
+                    output_format=request_data.output_format
+                )
             else:
                 error_message = f"Unknown Stability operation type: {operation_type}"
                 logger.error(f"Celery task {celery_task_id}: {error_message}")
@@ -430,6 +439,21 @@ def generate_recraft_image_task(self, image_db_id: str, image_data_b64: str, req
                     response_format=request_data.response_format,
                     style_id=request_data.style_id
                 )
+            elif operation_type == "upscale":
+                request_data = UpscaleRequest(**request_data_dict)
+                model = request_data.model or "crisp"  # Default to crisp
+                
+                if model == "crisp":
+                    image_url = await recraft_client.crisp_upscale(
+                        image_bytes=image_bytes,
+                        response_format=request_data.response_format
+                    )
+                else:
+                    error_message = f"Unsupported Recraft upscale model: {model}. Only 'crisp' is supported."
+                    logger.error(f"Celery task {celery_task_id}: {error_message}")
+                    raise CeleryTaskException(error_message)
+                
+                image_urls = [image_url]  # Convert single URL to list for consistent processing
             else:
                 error_message = f"Unknown Recraft operation type: {operation_type}"
                 logger.error(f"Celery task {celery_task_id}: {error_message}")
@@ -675,6 +699,152 @@ def generate_flux_image_task(self, image_db_id: str, image_data_b64: str, reques
         asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(process_flux_request())
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.error(f"Celery task {celery_task_id} for DB {image_db_id}: Final error state: {type(e).__name__} - {str(e)}", exc_info=True)
+        raise 
+
+@celery_app.task(bind=True)
+def generate_downscale_image_task(self, image_db_id: str, image_data_b64: str, request_data_dict: dict):
+    """Celery task to downscale images using basic image processing with Pillow."""
+    from utils.image_processing import downscale_image
+    
+    client_task_id = request_data_dict.get("task_id")
+    celery_task_id = self.request.id
+    
+    # Decode base64 image data
+    image_bytes = base64.b64decode(image_data_b64)
+    
+    logger.info(f"Celery task {celery_task_id} for DB record {image_db_id} (Client Task ID: {client_task_id}): Starting image downscaling.")
+    
+    async def process_downscale():
+        final_status = "failed"
+        error_message = None
+        
+        try:
+            # Create request data object
+            request_data = DownscaleRequest(**request_data_dict)
+            
+            # Update DB record to 'processing'
+            await supabase_handler.update_image_record(
+                task_id=client_task_id,
+                image_id=image_db_id,
+                status="processing"
+            )
+            logger.info(f"Celery task {celery_task_id}: Updated DB record {image_db_id} status to 'processing'.")
+            
+            # Process the image
+            processed_image_bytes = downscale_image(
+                image_bytes=image_bytes,
+                max_size_mb=request_data.max_size_mb,
+                aspect_ratio_mode=request_data.aspect_ratio_mode,
+                output_format=request_data.output_format
+            )
+            
+            # Determine output file extension
+            if request_data.output_format == "jpeg":
+                file_extension = ".jpg"
+                content_type = "image/jpeg"
+            elif request_data.output_format == "png":
+                file_extension = ".png"
+                content_type = "image/png"
+            else:  # original format
+                # Try to detect original format for extension
+                from utils.image_processing import get_image_format_from_bytes
+                try:
+                    original_format = get_image_format_from_bytes(image_bytes)
+                    if original_format.upper() == 'JPEG':
+                        file_extension = ".jpg"
+                        content_type = "image/jpeg"
+                    elif original_format.upper() == 'PNG':
+                        file_extension = ".png"
+                        content_type = "image/png"
+                    elif original_format.upper() == 'WEBP':
+                        file_extension = ".webp"
+                        content_type = "image/webp"
+                    else:
+                        file_extension = ".jpg"  # Default fallback
+                        content_type = "image/jpeg"
+                except:
+                    file_extension = ".jpg"  # Default fallback
+                    content_type = "image/jpeg"
+            
+            file_name_in_bucket = f"downscaled{file_extension}"
+            
+            logger.info(f"Celery task {celery_task_id}: Uploading processed image to Supabase.")
+            
+            # Upload to Supabase
+            supabase_url = await supabase_handler.upload_asset_to_storage(
+                task_id=client_task_id,
+                asset_type_plural="images",
+                file_name=file_name_in_bucket,
+                asset_data=processed_image_bytes,
+                content_type=content_type
+            )
+            
+            # Log file size info
+            original_size_mb = len(image_bytes) / (1024 * 1024)
+            final_size_mb = len(processed_image_bytes) / (1024 * 1024)
+            logger.info(f"Celery task {celery_task_id}: Downscaling complete. Original: {original_size_mb:.2f}MB, Final: {final_size_mb:.2f}MB")
+            
+            # Update DB record with results
+            await supabase_handler.update_image_record(
+                task_id=client_task_id,
+                image_id=image_db_id,
+                asset_url=supabase_url,
+                status="complete",
+                metadata={
+                    "original_size_mb": round(original_size_mb, 2),
+                    "final_size_mb": round(final_size_mb, 2),
+                    "aspect_ratio_mode": request_data.aspect_ratio_mode,
+                    "output_format": request_data.output_format,
+                    "processing_type": "downscale"
+                }
+            )
+            
+            final_status = "complete"
+            logger.info(f"Celery task {celery_task_id}: Updated DB record {image_db_id} with asset_url {supabase_url} and status 'complete'.")
+            
+            return {
+                'status': final_status, 
+                'image_url': supabase_url, 
+                'db_record_id': image_db_id,
+                'original_size_mb': original_size_mb,
+                'final_size_mb': final_size_mb
+            }
+            
+        except ValueError as e_validation:
+            error_message = f"Image processing validation error: {str(e_validation)}"
+            logger.error(f"Celery task {celery_task_id} for DB {image_db_id}: {error_message}")
+            final_status = "failed"
+        except Exception as e_unhandled:
+            error_message = f"Unexpected error during downscaling: {type(e_unhandled).__name__} - {str(e_unhandled)}"
+            logger.error(f"Celery task {celery_task_id} for DB {image_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        
+        # Update DB record with error status if needed
+        if final_status != "complete":
+            try:
+                await supabase_handler.update_image_record(
+                    task_id=client_task_id,
+                    image_id=image_db_id,
+                    status=final_status,
+                    metadata={"error": error_message, "processing_type": "downscale"}
+                )
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {image_db_id} status to '{final_status}'.")
+            except Exception as db_update_e:
+                logger.error(f"Celery task {celery_task_id}: CRITICAL - Failed to update DB record {image_db_id} to '{final_status}': {db_update_e}", exc_info=True)
+        
+        if error_message:
+            raise CeleryTaskException(error_message)
+    
+    # Run async processing
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(process_downscale())
         finally:
             loop.close()
     except Exception as e:

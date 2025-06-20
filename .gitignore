@@ -1,5 +1,5 @@
 # Ignore environment variable file
-.env 
+.env*
 .venv/
 *__pycache__/
 *.DS_Store

@@ -252,6 +252,41 @@ class RecraftClient:
             
             return image_urls
     
+    async def crisp_upscale(
+        self,
+        image_bytes: bytes,
+        response_format: str = "url"
+    ) -> str:
+        """
+        Enhance image resolution using Recraft Crisp Upscale tool.
+        Focuses on making images sharper and cleaner.
+        Returns image URL.
+        """
+        endpoint = f"{self.base_url}/v1/images/crispUpscale"
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        
+        files = {
+            "file": ("image.png", BytesIO(image_bytes), "image/png")
+        }
+        
+        data = {
+            "response_format": response_format
+        }
+        
+        async with httpx.AsyncClient(timeout=120.0) as client:  # Longer timeout for upscaling
+            response = await client.post(endpoint, headers=headers, files=files, data=data)
+            response.raise_for_status()
+            response_data = response.json()
+            
+            # Extract image URL from response
+            if response_data.get("image") and response_data["image"].get("url"):
+                return response_data["image"]["url"]
+            else:
+                raise ValueError("No upscaled image URL found in response")
+
     async def download_image(self, image_url: str) -> bytes:
         """
         Download image from URL and return bytes.

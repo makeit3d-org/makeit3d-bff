@@ -183,6 +183,44 @@ class RemoveBackgroundRequest(BaseModel):
     # Recraft parameters
     response_format: Optional[str] = "url" # Recraft response format
 
+class UpscaleRequest(BaseModel):
+    """Request schema for image upscaling (multi-provider)."""
+    task_id: str # Client-generated main task ID
+    provider: Literal["stability", "recraft"] # AI provider to use
+    input_image_asset_url: str # Supabase URL to the input image
+    
+    # Shared parameters
+    model: Optional[str] = None # Model to use: Stability: "fast", Recraft: "crisp" (default and only option)
+    
+    # Stability parameters
+    output_format: Optional[str] = "png" # Stability output format
+    
+    # Recraft parameters
+    response_format: Optional[str] = "url" # Recraft response format
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Set default model based on provider
+        if self.model is None:
+            if self.provider == "stability":
+                self.model = "fast"
+            elif self.provider == "recraft":
+                self.model = "crisp"
+
+class DownscaleRequest(BaseModel):
+    """Request schema for image downscaling (basic image processing)."""
+    task_id: str # Client-generated main task ID
+    input_image_asset_url: str # Supabase URL to the input image
+    max_size_mb: float = Field(ge=0.1, le=20.0) # Target maximum file size in megabytes
+    aspect_ratio_mode: Literal["original", "square"] # Aspect ratio handling
+    output_format: Literal["original", "jpeg", "png"] = "original" # Output format conversion
+    
+    @field_validator('max_size_mb')
+    def validate_max_size_mb(cls, value: float):
+        if value <= 0:
+            raise ValueError("max_size_mb must be greater than 0")
+        return value
+
 class ImageInpaintRequest(BaseModel):
     """Request schema for image inpainting (Recraft only)."""
     task_id: str # Client-generated main task ID
