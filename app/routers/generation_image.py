@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.post("/image-to-image", response_model=TaskIdResponse)
+@router.post("/image-to-image", response_model=TaskIdResponse, include_in_schema=False)
 @limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
 async def generate_image_to_image_endpoint(
     request: Request, # FastAPI request object for context if needed (e.g., user)
@@ -140,7 +140,7 @@ async def generate_image_to_image_endpoint(
 
     return TaskIdResponse(celery_task_id=celery_task.id)
 
-@router.post("/text-to-image", response_model=TaskIdResponse)
+@router.post("/text-to-image", response_model=TaskIdResponse, include_in_schema=False)
 @limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
 async def generate_text_to_image_endpoint(
     request: Request, 
@@ -230,7 +230,7 @@ async def generate_text_to_image_endpoint(
                 logger.error(f"Failed to update image record to failed: {db_update_e}")
         raise HTTPException(status_code=500, detail=f"Failed to process text-to-image request: {str(e)}")
 
-@router.post("/sketch-to-image", response_model=TaskIdResponse)
+@router.post("/sketch-to-image", response_model=TaskIdResponse, include_in_schema=False)
 async def generate_sketch_to_image_endpoint(
     request: Request, 
     request_data: SketchToImageRequest,
@@ -366,7 +366,7 @@ async def remove_background_endpoint(
             except: pass
         raise HTTPException(status_code=500, detail=f"Failed to process remove-background request: {str(e)}")
 
-@router.post("/image-inpaint", response_model=TaskIdResponse)
+@router.post("/image-inpaint", response_model=TaskIdResponse, include_in_schema=False)
 @limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
 async def image_inpaint_endpoint(
     request: Request, 
@@ -436,7 +436,7 @@ async def image_inpaint_endpoint(
             except: pass
         raise HTTPException(status_code=500, detail=f"Failed to process image-inpaint request: {str(e)}")
 
-@router.post("/search-and-recolor", response_model=TaskIdResponse)
+@router.post("/search-and-recolor", response_model=TaskIdResponse, include_in_schema=False)
 @limiter.limit(f"{settings.BFF_OPENAI_REQUESTS_PER_MINUTE}/minute")
 async def search_and_recolor_endpoint(
     request: Request, 

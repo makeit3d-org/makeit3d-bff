@@ -57,6 +57,8 @@ The MakeIt3D Backend-For-Frontend (BFF) API serves as an intermediary between yo
 - **✏️ Sketch Processing** via Stability AI
 - **🖼️ Background Removal** via Stability AI and Recraft
 - **🎨 Object Recoloring** via Stability AI's Search and Recolor
+- **📈 Image Upscaling** via Stability AI and Recraft AI
+- **📉 Image Downscaling** via basic image processing with Pillow
 - **🔧 Model Refinement** via Tripo AI
 - **📦 Asset Management** with Supabase Storage integration
 - **⚡ Asynchronous Processing** with real-time status updates
@@ -66,23 +68,27 @@ The MakeIt3D Backend-For-Frontend (BFF) API serves as an intermediary between yo
 ### Multi-Provider Support
 Each endpoint now supports multiple AI providers with provider-specific parameters:
 
-| Endpoint | OpenAI | Tripo | Stability | Recraft | Flux |
-|----------|--------|-------|-----------|---------|------|
-| `/image-to-image` | ✅ | ❌ | ✅ | ✅ | ✅ |
-| `/text-to-image` | ✅ | ❌ | ✅ | ✅ | ❌ |
-| `/text-to-model` | ❌ | ✅ | ❌ | ❌ | ❌ |
-| `/image-to-model` | ❌ | ✅ | ✅ | ❌ | ❌ |
-| `/sketch-to-image` | ❌ | ❌ | ✅ | ❌ | ❌ |
-| `/image-inpaint` | ❌ | ❌ | ❌ | ✅ | ❌ |
-| `/remove-background` | ❌ | ❌ | ✅ | ✅ | ❌ |
-| `/search-and-recolor` | ❌ | ❌ | ✅ | ❌ | ❌ |
-| `/refine-model` | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Endpoint | OpenAI | Tripo | Stability | Recraft | Flux | Image Processing |
+|----------|--------|-------|-----------|---------|------|------------------|
+| `/image-to-image` | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ |
+| `/text-to-image` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| `/text-to-model` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `/image-to-model` | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| `/sketch-to-image` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| `/image-inpaint` | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| `/remove-background` | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| `/search-and-recolor` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| `/upscale` | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| `/downscale` | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `/refine-model` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 ### New Endpoints
 - **`/text-to-image`** - New 2D image generation from text using OpenAI, Stability, and Recraft
 - **`/sketch-to-image`** - Generates 2D images from sketches using Stability AI
 - **`/remove-background`** - Background removal functionality
 - **`/search-and-recolor`** - Object segmentation and recoloring using Stability AI
+- **`/upscale`** - AI-powered image upscaling using Stability AI and Recraft
+- **`/downscale`** - Basic image processing for file size reduction with aspect ratio control
 
 ### Updated Endpoints
 - **`/text-to-model`** - Now exclusively for 3D model generation using Tripo AI only
@@ -551,11 +557,82 @@ Automatically segment and recolor specific objects in an image using Stability A
 - **Smooth Transitions**: `grow_mask` parameter ensures natural edges around recolored areas
 - **Style Control**: Optional style presets for consistent artistic output
 
-**Use Cases:**
-- Change clothing colors in fashion photos
-- Recolor vehicles, furniture, or objects in product images
-- Create color variations of characters or illustrations
-- Brand color consistency across product lines
+
+
+---
+
+### 📈 Image Upscaling
+
+Enhance image resolution and quality using AI-powered upscaling with Stability AI or Recraft.
+
+**Endpoint:** `POST /generation/upscale`
+
+#### Stability AI Provider
+```javascript
+{
+  "task_id": "upscale-stability-001",         // Required: Your unique task ID
+  "provider": "stability",                    // Required: Provider selection
+  "input_image_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/image.png", // Required: Full Supabase URL
+  
+  // Stability-specific parameters:
+  "model": "fast",                           // Optional: Model selection ("fast" is default and only option)
+  "output_format": "png"                     // Optional: "png", "jpeg", "webp" (default: "png")
+}
+```
+
+#### Recraft Provider
+```javascript
+{
+  "task_id": "upscale-recraft-001",          // Required: Your unique task ID
+  "provider": "recraft",                     // Required: Provider selection
+  "input_image_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/image.png", // Required: Full Supabase URL
+  
+  // Recraft-specific parameters:
+  "model": "crisp",                          // Optional: Model selection ("crisp" is default and only option)
+  "response_format": "url"                   // Optional: "url" or "b64_json" (default: "url")
+}
+```
+
+
+
+---
+
+### 📉 Image Downscaling
+
+Reduce image file sizes to meet specific constraints while maintaining quality using basic image processing.
+
+**Endpoint:** `POST /generation/downscale`
+
+**Note:** This endpoint uses basic image processing (Pillow) rather than AI providers for fast, reliable file size reduction.
+
+```javascript
+{
+  "task_id": "downscale-001",                           // Required: Your unique task ID
+  "input_image_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/image.png", // Required: Full Supabase URL
+  "max_size_mb": 0.5,                                   // Required: Target maximum file size in MB (0.1-20.0)
+  "aspect_ratio_mode": "original",                      // Required: "original" or "square"
+  "output_format": "original"                           // Optional: "original", "jpeg", "png" (default: "original")
+}
+```
+
+**Parameters:**
+- **`max_size_mb`**: Target maximum file size in megabytes (0.1 to 20.0 MB range)
+- **`aspect_ratio_mode`**: 
+  - `"original"`: Maintains original image proportions
+  - `"square"`: Adds white padding to create a square image
+- **`output_format`**: 
+  - `"original"`: Keeps the same format as input
+  - `"jpeg"`: Converts to JPEG (good for photos, smaller files)
+  - `"png"`: Converts to PNG (good for graphics with transparency)
+
+
+
+**Input Constraints:**
+- Maximum input file size: 20MB
+- Supported formats: JPEG, PNG, GIF, WebP, BMP, TIFF
+- Images smaller than target size are still processed (for format conversion and square padding)
+
+**Response Note:** The downscale endpoint returns `image_url` in the status response (not `asset_url` like other endpoints).
 
 ---
 
@@ -603,6 +680,8 @@ Poll for real-time updates on your generation tasks.
 - Stability AI tasks: `service=openai`
 - Recraft tasks: `service=openai`
 - Flux tasks: `service=openai`
+- Upscale tasks (all providers): `service=openai`
+- Downscale tasks (image processing): `service=openai`
 
 **Example:**
 ```javascript
@@ -652,203 +731,7 @@ const response = await fetch(`/tasks/abc123xyz456/status?service=openai`, {
 
 ---
 
-## Implementation Examples
 
-### Multi-Provider Image Generation
-
-```javascript
-// Example: Try different providers for the same prompt
-const providers = ['openai', 'stability', 'recraft'];
-const results = [];
-
-for (const provider of providers) {
-  const taskId = `task-${provider}-${Date.now()}`;
-  
-  // Provider-specific parameters
-  let providerParams = { task_id: taskId, provider, prompt: "Cyberpunk cityscape" };
-  
-  if (provider === 'openai') {
-    providerParams = { ...providerParams, style: "vivid", n: 2 };
-  } else if (provider === 'stability') {
-    providerParams = { ...providerParams, style_preset: "neon-punk", output_format: "png" };
-  } else if (provider === 'recraft') {
-    providerParams = { ...providerParams, style: "digital_illustration", substyle: "cyberpunk" };
-  }
-  
-  const response = await fetch('/generation/text-to-model', {
-    method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-      'X-API-Key': 'your-api-key'
-    },
-    body: JSON.stringify(providerParams)
-  });
-  
-  const { celery_task_id } = await response.json();
-  results.push({ provider, taskId: celery_task_id });
-}
-
-// Poll all tasks
-const finalResults = await Promise.all(
-  results.map(({ provider, taskId }) => 
-    pollStatus(taskId, provider === 'tripo' ? 'tripoai' : 'openai')
-  )
-);
-```
-
-### Background Removal with Fallback
-
-```javascript
-// Try Stability first, fallback to Recraft if needed
-const removeBackground = async (imageUrl, taskId) => {
-  try {
-    // Try Stability AI first
-    const stabilityResponse = await fetch('/generation/remove-background', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-        'X-API-Key': 'your-api-key'
-      },
-      body: JSON.stringify({
-        task_id: `${taskId}-stability`,
-        provider: "stability",
-        input_image_asset_url: imageUrl,
-        output_format: "png"
-      })
-    });
-    
-    const { celery_task_id } = await stabilityResponse.json();
-    return await pollStatus(celery_task_id, 'openai');
-    
-  } catch (error) {
-    console.log('Stability failed, trying Recraft...', error);
-    
-    // Fallback to Recraft
-    const recraftResponse = await fetch('/generation/remove-background', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-        'X-API-Key': 'your-api-key'
-      },
-      body: JSON.stringify({
-        task_id: `${taskId}-recraft`,
-        provider: "recraft",
-        input_image_asset_url: imageUrl,
-        response_format: "url"
-      })
-    });
-    
-    const { celery_task_id } = await recraftResponse.json();
-    return await pollStatus(celery_task_id, 'openai');
-  }
-};
-```
-
-### 3D Model Generation with Multiple Providers
-
-```javascript
-// Generate 3D model using both Tripo and Stability, compare results
-const generate3DModel = async (imageUrl, taskId) => {
-  const tripoTask = fetch('/generation/image-to-model', {
-    method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-      'X-API-Key': 'your-api-key'
-    },
-    body: JSON.stringify({
-      task_id: `${taskId}-tripo`,
-      provider: "tripo",
-      input_image_asset_urls: [imageUrl],
-      texture_quality: "detailed",
-      pbr: true
-    })
-  });
-  
-  const stabilityTask = fetch('/generation/image-to-model', {
-    method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-      'X-API-Key': 'your-api-key'
-    },
-    body: JSON.stringify({
-      task_id: `${taskId}-stability`,
-      provider: "stability",
-      input_image_asset_urls: [imageUrl],
-      texture_resolution: 1024,
-      remesh: "quad"
-    })
-  });
-  
-  const [tripoResponse, stabilityResponse] = await Promise.all([tripoTask, stabilityTask]);
-  
-  const tripoTaskId = (await tripoResponse.json()).celery_task_id;
-  const stabilityTaskId = (await stabilityResponse.json()).celery_task_id;
-  
-  // Poll both tasks
-  const [tripoResult, stabilityResult] = await Promise.all([
-    pollStatus(tripoTaskId, 'tripoai'),
-    pollStatus(stabilityTaskId, 'openai')
-  ]);
-  
-  return {
-    tripo: tripoResult.asset_url,
-    stability: stabilityResult.asset_url
-  };
-};
-```
-
-### Search and Recolor Implementation
-
-```javascript
-// Advanced object recoloring with automatic segmentation
-const recolorObject = async (imageUrl, taskId, objectDescription, newColors) => {
-  const response = await fetch('/generation/search-and-recolor', {
-    method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-      'X-API-Key': 'your-api-key'
-    },
-    body: JSON.stringify({
-      task_id: `${taskId}-recolor`,
-      provider: "stability",
-      input_image_asset_url: imageUrl,
-      prompt: `${objectDescription} with ${newColors}, maintaining the same pose and expression`,
-      select_prompt: objectDescription,
-      negative_prompt: "blurry, low quality, distorted",
-      grow_mask: 3,
-      output_format: "png",
-      style_preset: "photographic"
-    })
-  });
-  
-  const { celery_task_id } = await response.json();
-  return await pollStatus(celery_task_id, 'openai');
-};
-
-// Example usage: Recolor a car from red to blue
-const result = await recolorObject(
-  'https://project.supabase.co/storage/v1/object/public/bucket/red-car.png',
-  'task-car-recolor-123',
-  'car',
-  'bright blue metallic paint'
-);
-
-// Example usage: Change shirt color from white to green
-const shirtResult = await recolorObject(
-  'https://project.supabase.co/storage/v1/object/public/bucket/person.png',
-  'task-shirt-recolor-456', 
-  'shirt',
-  'forest green fabric'
-);
-```
-
----
 
 ## Response Codes
 
@@ -948,9 +831,10 @@ try {
 
 ### 4. **Progress Indication by Provider**
 - **OpenAI**: 10-30 seconds for images
-- **Stability AI**: 15-45 seconds for images, 60-180 seconds for 3D models
-- **Recraft**: 10-30 seconds for images
+- **Stability AI**: 15-45 seconds for images, 60-180 seconds for 3D models, 10-20 seconds for upscaling
+- **Recraft**: 10-30 seconds for images, 15-25 seconds for upscaling
 - **Tripo AI**: 60-300 seconds for 3D models (longer for multiview)
+- **Image Processing (Downscale)**: 1-3 seconds for basic processing
 
 ---
 

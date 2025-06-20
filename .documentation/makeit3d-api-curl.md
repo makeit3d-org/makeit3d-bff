@@ -133,7 +133,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
   -d '{
     "task_id": "image-to-image-openai-001",
     "provider": "openai",
-    "input_image_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/sample.jpg",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "prompt": "Transform this into a watercolor painting",
     "style": "vivid",
     "n": 1,
@@ -149,7 +149,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
   -d '{
     "task_id": "image-to-image-stability-001",
     "provider": "stability",
-    "input_image_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/sample.jpg",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "prompt": "Make this image look like a vintage photograph",
     "style_preset": "photographic",
     "fidelity": 0.8,
@@ -167,7 +167,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
   -d '{
     "task_id": "image-to-image-recraft-001",
     "provider": "recraft",
-    "input_image_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/sample.jpg",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "prompt": "Convert this to a cartoon style illustration",
     "substyle": "cartoon",
     "strength": 0.2,
@@ -184,7 +184,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
   -d '{
     "task_id": "image-to-image-flux-001",
     "provider": "flux",
-    "input_image_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/sample.jpg",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "prompt": "Transform this into a sci-fi scene",
     "aspect_ratio": "1:1",
     "safety_tolerance": 2,
@@ -200,7 +200,7 @@ curl -X POST https://api.makeit3d.io/generate/sketch-to-image \
   -H "Content-Type: application/json" \
   -d '{
     "task_id": "sketch-to-image-001",
-    "input_sketch_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/sketch.jpg",
+    "input_sketch_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/sketch-cat.jpg",
     "prompt": "A realistic sports car based on this sketch",
     "control_strength": 0.8,
     "style_preset": "3d-model",
@@ -220,7 +220,7 @@ curl -X POST https://api.makeit3d.io/generate/remove-background \
   -d '{
     "task_id": "remove-bg-stability-001",
     "provider": "stability",
-    "input_image_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/sample.jpg",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "output_format": "png"
   }'
 ```
@@ -233,7 +233,7 @@ curl -X POST https://api.makeit3d.io/generate/remove-background \
   -d '{
     "task_id": "remove-bg-recraft-001",
     "provider": "recraft",
-    "input_image_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/sample.jpg",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "response_format": "url"
   }'
 ```
@@ -247,8 +247,8 @@ curl -X POST https://api.makeit3d.io/generate/image-inpaint \
   -d '{
     "task_id": "image-inpaint-001",
     "provider": "recraft",
-    "input_image_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/sample.jpg",
-    "input_mask_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/mask.jpg",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
+    "input_mask_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/mask.jpg",
     "prompt": "A beautiful garden with flowers",
     "negative_prompt": "ugly, distorted",
     "n": 1,
@@ -268,7 +268,7 @@ curl -X POST https://api.makeit3d.io/generate/search-and-recolor \
   -d '{
     "task_id": "search-recolor-001",
     "provider": "stability",
-    "input_image_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/sample.jpg",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "prompt": "Make it bright red with metallic finish",
     "select_prompt": "car",
     "negative_prompt": "dull, matte",
@@ -276,6 +276,79 @@ curl -X POST https://api.makeit3d.io/generate/search-and-recolor \
     "seed": 0,
     "output_format": "png",
     "style_preset": "photographic"
+  }'
+```
+
+### 7. Upscale Images
+
+#### Stability AI
+```bash
+curl -X POST https://api.makeit3d.io/generate/upscale \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "upscale-stability-001",
+    "provider": "stability",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
+    "model": "fast",
+    "output_format": "png"
+  }'
+```
+
+#### Recraft AI
+```bash
+curl -X POST https://api.makeit3d.io/generate/upscale \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "upscale-recraft-001",
+    "provider": "recraft",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
+    "model": "crisp",
+    "response_format": "url"
+  }'
+```
+
+### 8. Downscale Images (Basic Image Processing)
+
+```bash
+curl -X POST https://api.makeit3d.io/generate/downscale \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "downscale-001",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
+    "max_size_mb": 0.5,
+    "aspect_ratio_mode": "original",
+    "output_format": "original"
+  }'
+```
+
+#### Downscale with Square Padding
+```bash
+curl -X POST https://api.makeit3d.io/generate/downscale \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "downscale-square-001",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
+    "max_size_mb": 1.0,
+    "aspect_ratio_mode": "square",
+    "output_format": "png"
+  }'
+```
+
+#### Downscale with Format Conversion
+```bash
+curl -X POST https://api.makeit3d.io/generate/downscale \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "downscale-convert-001",
+    "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
+    "max_size_mb": 0.2,
+    "aspect_ratio_mode": "original",
+    "output_format": "jpeg"
   }'
 ```
 
@@ -312,8 +385,8 @@ curl -X POST https://api.makeit3d.io/generate/image-to-model \
     "task_id": "image-to-model-tripo-001",
     "provider": "tripo",
     "input_image_asset_urls": [
-      "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/front.jpg",
-      "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/side.jpg"
+      "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/front.jpg",
+      "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/side.jpg"
     ],
     "prompt": "A detailed 3D model of this object",
     "style": "realistic",
@@ -336,7 +409,7 @@ curl -X POST https://api.makeit3d.io/generate/image-to-model \
     "task_id": "image-to-model-stability-001",
     "provider": "stability",
     "input_image_asset_urls": [
-      "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/input_images/sample.jpg"
+      "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg"
     ],
     "texture_resolution": 2048,
     "remesh": "quad",
@@ -357,7 +430,7 @@ curl -X POST https://api.makeit3d.io/generate/refine-model \
   -d '{
     "task_id": "refine-model-001",
     "provider": "tripo",
-    "input_model_asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/models/draft_model.glb",
+    "input_model_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-models/draft_model.glb",
     "prompt": "Make it more detailed and realistic with better textures",
     "draft_model_task_id": "previous-tripo-task-id",
     "texture": true,
@@ -386,6 +459,12 @@ curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id
 
 # Flux AI tasks
 curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=flux"
+
+# Upscale tasks (all providers)
+curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=openai"
+
+# Downscale tasks (image processing)
+curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=openai"
 ```
 
 #### For 3D Model Generation Tasks
@@ -399,7 +478,7 @@ curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id
 {
   "task_id": "celery-task-id-12345",
   "status": "complete",
-  "asset_url": "https://iadsbhyztbokarclnzzk.supabase.co/storage/v1/object/public/makeit3d-app-assets/outputs/result.png",
+  "asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-images/result.png",
   "progress": 100
 }
 ```
@@ -476,20 +555,28 @@ fi
 - OpenAI: 4 requests/minute
 - Tripo Refine: 2 requests/minute  
 - Tripo Other: 4 requests/minute
+- Upscale: 4 requests/minute
+- Downscale: 30 requests/minute (more permissive for basic image processing)
 
 ### Provider Capabilities
 
-| Feature | OpenAI | Stability | Recraft | Flux | Tripo |
-|---------|--------|-----------|---------|------|-------|
-| Text-to-Image | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Image-to-Image | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Sketch-to-Image | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Remove Background | ❌ | ✅ | ✅ | ❌ | ❌ |
-| Image Inpaint | ❌ | ❌ | ✅ | ❌ | ❌ |
-| Search & Recolor | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Text-to-Model | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Image-to-Model | ❌ | ✅ | ❌ | ❌ | ✅ |
-| Refine Model | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Feature | OpenAI | Stability | Recraft | Flux | Tripo | Image Processing |
+|---------|--------|-----------|---------|------|-------|------------------|
+| Text-to-Image | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Image-to-Image | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Sketch-to-Image | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Remove Background | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Image Inpaint | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Search & Recolor | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Upscale | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Downscale | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Text-to-Model | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Image-to-Model | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| Refine Model | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+
+### Upscale vs Downscale
+- **Upscale**: AI-powered enhancement using Stability AI or Recraft, increases image resolution and quality
+- **Downscale**: Basic image processing using Pillow, reduces file size to meet size constraints
 
 ### Error Handling
 - Always check the HTTP status code
@@ -508,4 +595,3 @@ fi
 **API Version**: 1.0.0  
 **Last Updated**: June 2025  
 **Base URL**: https://api.makeit3d.io
-**Base URL**: https://api.makeit3d.io 
