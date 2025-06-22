@@ -12,28 +12,26 @@ from auth import get_current_tenant, TenantContext
 # Test user ID for endpoints when auth is not implemented (kept for backward compatibility)
 TEST_USER_ID = "00000000-0000-4000-8000-000000000001"
 
-# Explicitly import required schemas from the module (model-related only)
+# Import response models
 from schemas.generation_schemas import (
+    TaskIdResponse,
     TextToModelRequest,
     ImageToModelRequest,
-    RefineModelRequest,
-    TaskIdResponse,
+    RefineModelRequest
 )
 
-# Import configuration and dependencies
-from config import settings # Import settings
-from limiter import limiter # Import the limiter
-
-import supabase_handler # New Supabase handler
-
-# Import only model-related tasks
+# Import Celery tasks
 from tasks.generation_model_tasks import (
     generate_tripo_text_to_model_task,
     generate_tripo_image_to_model_task,
     generate_tripo_refine_model_task,
-    generate_stability_model_task,
-    generate_tripoai_model_task
+    generate_stability_model_task
 )
+
+# Import settings and other dependencies
+from config import settings
+import supabase_handler
+from limiter import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +52,8 @@ async def generate_text_to_model_endpoint(
     user_id_from_auth = tenant.get_user_id()
 
     # Validate provider
-    if request_data.provider not in ["tripoai"]:
-        raise HTTPException(status_code=400, detail="text-to-model currently supports only 'tripoai' provider")
+    if request_data.provider not in ["tripo"]:
+        raise HTTPException(status_code=400, detail="text-to-model currently supports only 'tripo' provider")
 
     try:
         # Create the record in models table before dispatching the task
@@ -72,12 +70,13 @@ async def generate_text_to_model_endpoint(
 
         logger.info(f"Sending {request_data.provider} text-to-model task to Celery for model_db_id: {model_db_id}")
         
-        # Dispatch to TripoAI task
-        celery_task = generate_tripoai_model_task.delay(
+        # Dispatch to Tripo task with task_id added to request data
+        request_data_with_task_id = request_data.model_dump()
+        request_data_with_task_id["task_id"] = task_id
+        
+        celery_task = generate_tripo_text_to_model_task.delay(
             model_db_id,
-            "",  # No image_bytes for text-to-model
-            request_data.model_dump(),
-            "text_to_model"
+            request_data_with_task_id
         )
             
         logger.info(f"Celery task ID: {celery_task.id} for model_db_id: {model_db_id}")
@@ -120,8 +119,8 @@ async def generate_image_to_model_endpoint(
     user_id_from_auth = tenant.get_user_id()
 
     # Validate provider
-    if request_data.provider not in ["tripoai"]:
-        raise HTTPException(status_code=400, detail="image-to-model currently supports only 'tripoai' provider")
+    if request_data.provider not in ["tripo", "stability"]:
+        raise HTTPException(status_code=400, detail="image-to-model supports 'tripo' and 'stability' providers")
 
     # Fetch the image from Supabase first
     try:
@@ -149,13 +148,29 @@ async def generate_image_to_model_endpoint(
 
         logger.info(f"Sending {request_data.provider} image-to-model task to Celery for model_db_id: {model_db_id}")
         
-        # Dispatch to TripoAI task
-        celery_task = generate_tripoai_model_task.delay(
-            model_db_id,
-            base64.b64encode(image_bytes).decode('utf-8'),
-            request_data.model_dump(),
-            "image_to_model"
-        )
+        # Prepare request data with task_id
+        request_data_with_task_id = request_data.model_dump()
+        request_data_with_task_id["task_id"] = task_id
+        
+        if request_data.provider == "tripo":
+            # Tripo expects a list of image bytes and filenames
+            image_bytes_list = [image_bytes]
+            original_filenames = [request_data.input_image_asset_url.split('/')[-1]]
+            
+            celery_task = generate_tripo_image_to_model_task.delay(
+                model_db_id,
+                image_bytes_list,
+                original_filenames,
+                request_data_with_task_id
+            )
+        elif request_data.provider == "stability":
+            celery_task = generate_stability_model_task.delay(
+                model_db_id,
+                image_bytes,
+                request_data_with_task_id
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported provider: {request_data.provider}")
             
         logger.info(f"Celery task ID: {celery_task.id} for model_db_id: {model_db_id}")
 
@@ -197,8 +212,8 @@ async def refine_model_endpoint(
     user_id_from_auth = tenant.get_user_id()
 
     # Validate provider
-    if request_data.provider not in ["tripoai"]:
-        raise HTTPException(status_code=400, detail="refine-model currently supports only 'tripoai' provider")
+    if request_data.provider not in ["tripo"]:
+        raise HTTPException(status_code=400, detail="refine-model currently supports only 'tripo' provider")
 
     # Fetch the model file from Supabase first
     try:
@@ -226,12 +241,19 @@ async def refine_model_endpoint(
 
         logger.info(f"Sending {request_data.provider} refine-model task to Celery for model_db_id: {model_db_id}")
         
-        # Dispatch to TripoAI task with model bytes
-        celery_task = generate_tripoai_model_task.delay(
+        # Prepare request data with task_id
+        request_data_with_task_id = request_data.model_dump()
+        request_data_with_task_id["task_id"] = task_id
+        
+        # Get original filename
+        original_filename = request_data.input_model_asset_url.split('/')[-1]
+        
+        # Dispatch to Tripo refine task
+        celery_task = generate_tripo_refine_model_task.delay(
             model_db_id,
-            base64.b64encode(model_bytes).decode('utf-8'),
-            request_data.model_dump(),
-            "refine_model"
+            model_bytes,
+            original_filename,
+            request_data_with_task_id
         )
             
         logger.info(f"Celery task ID: {celery_task.id} for model_db_id: {model_db_id}")

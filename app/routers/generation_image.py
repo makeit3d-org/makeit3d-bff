@@ -95,32 +95,36 @@ async def generate_image_to_image_endpoint(
 
     logger.info(f"Sending {request_data.provider} image generation task to Celery for db_id: {image_db_id}")
     
+    # Add task_id to request data for Celery tasks
+    request_data_with_task_id = request_data.model_dump()
+    request_data_with_task_id["task_id"] = task_id
+    
     if request_data.provider == "openai":
         celery_task = generate_openai_image_task.delay(
             image_db_id,
             base64.b64encode(image_bytes).decode('utf-8'),
             request_data.input_image_asset_url.split('/')[-1],
-            request_data.model_dump()
+            request_data_with_task_id
         )
     elif request_data.provider == "stability":
         celery_task = generate_stability_image_task.delay(
             image_db_id,
             base64.b64encode(image_bytes).decode('utf-8'),
-            request_data.model_dump(),
+            request_data_with_task_id,
             "image_to_image"
         )
     elif request_data.provider == "recraft":
         celery_task = generate_recraft_image_task.delay(
             image_db_id,
             base64.b64encode(image_bytes).decode('utf-8'),
-            request_data.model_dump(),
+            request_data_with_task_id,
             "image_to_image"
         )
     elif request_data.provider == "flux":
         celery_task = generate_flux_image_task.delay(
             image_db_id,
             base64.b64encode(image_bytes).decode('utf-8'),
-            request_data.model_dump(),
+            request_data_with_task_id,
             "image_to_image"
         )
     else:
@@ -181,33 +185,37 @@ async def generate_text_to_image_endpoint(
 
         logger.info(f"Sending {request_data.provider} text-to-image task to Celery for image_db_id: {image_db_id}")
         
+        # Add task_id to request data for Celery tasks
+        request_data_with_task_id = request_data.model_dump()
+        request_data_with_task_id["task_id"] = task_id
+        
         if request_data.provider == "openai":
             # For OpenAI text-to-image, we don't need image_bytes, so pass empty string
             celery_task = generate_openai_image_task.delay(
                 image_db_id,
                 "",  # Empty string for text-to-image
                 "",  # No filename for text-to-image
-                request_data.model_dump()
+                request_data_with_task_id
             )
         elif request_data.provider == "stability":
             celery_task = generate_stability_image_task.delay(
                 image_db_id,
                 "",  # Empty string for text-to-image
-                request_data.model_dump(),
+                request_data_with_task_id,
                 "text_to_image"
             )
         elif request_data.provider == "recraft":
             celery_task = generate_recraft_image_task.delay(
                 image_db_id,
                 "",  # Empty string for text-to-image
-                request_data.model_dump(),
+                request_data_with_task_id,
                 "text_to_image"
             )
         elif request_data.provider == "flux":
             celery_task = generate_flux_image_task.delay(
                 image_db_id,
                 "",  # Empty string for text-to-image
-                request_data.model_dump(),
+                request_data_with_task_id,
                 "text_to_image"
             )
         else:
@@ -272,11 +280,15 @@ async def generate_sketch_to_image_endpoint(
         image_db_id = db_record["id"]
         logger.info(f"Created image record {image_db_id} for sketch-to-image task {task_id}")
 
+        # Add task_id to request data for Celery task
+        request_data_with_task_id = request_data.model_dump()
+        request_data_with_task_id["task_id"] = task_id
+
         # Use Stability image task for sketch-to-image
         celery_task = generate_stability_image_task.delay(
             image_db_id,
             base64.b64encode(image_bytes).decode('utf-8'),
-            request_data.model_dump(),
+            request_data_with_task_id,
             "sketch_to_image"
         )
         logger.info(f"Celery task ID: {celery_task.id} for image_db_id: {image_db_id}")
@@ -342,18 +354,22 @@ async def remove_background_endpoint(
         image_db_id = db_record["id"]
         logger.info(f"Created image record {image_db_id} for remove-background task {task_id}")
 
+        # Add task_id to request data for Celery task
+        request_data_with_task_id = request_data.model_dump()
+        request_data_with_task_id["task_id"] = task_id
+
         if request_data.provider == "stability":
             celery_task = generate_stability_image_task.delay(
                 image_db_id,
                 base64.b64encode(image_bytes).decode('utf-8'),
-                request_data.model_dump(),
+                request_data_with_task_id,
                 "remove_background"
             )
         elif request_data.provider == "recraft":
             celery_task = generate_recraft_image_task.delay(
                 image_db_id,
                 base64.b64encode(image_bytes).decode('utf-8'),
-                request_data.model_dump(),
+                request_data_with_task_id,
                 "remove_background"
             )
         else:
@@ -420,9 +436,9 @@ async def image_inpaint_endpoint(
         # Use Recraft image task with inpaint operation
         from tasks.generation_image_tasks import generate_recraft_image_task
         
-        # We need to pass both image and mask bytes - we'll modify the task to handle this
-        # For now, we'll pass the mask bytes in the metadata and handle it in the task
+        # Add task_id to request data and pass mask bytes for Celery task
         request_data_with_mask = request_data.model_dump()
+        request_data_with_mask["task_id"] = task_id
         request_data_with_mask["mask_bytes"] = mask_bytes
         
         celery_task = generate_recraft_image_task.delay(
@@ -492,8 +508,9 @@ async def search_and_recolor_endpoint(
         image_db_id = db_record["id"]
         logger.info(f"Created image DB record {image_db_id} for async task {operation_id}")
 
-        # Convert request data to dict for Celery serialization
+        # Add task_id to request data for Celery task
         request_data_dict = request_data.model_dump()
+        request_data_dict["task_id"] = task_id
 
         # Queue the Celery task
         celery_task = generate_stability_image_task.delay(
@@ -567,18 +584,22 @@ async def upscale_endpoint(
         image_db_id = db_record["id"]
         logger.info(f"Created image record {image_db_id} for upscale task {task_id}")
 
+        # Add task_id to request data for Celery task
+        request_data_with_task_id = request_data.model_dump()
+        request_data_with_task_id["task_id"] = task_id
+
         if request_data.provider == "stability":
             celery_task = generate_stability_image_task.delay(
                 image_db_id,
                 base64.b64encode(image_bytes).decode('utf-8'),
-                request_data.model_dump(),
+                request_data_with_task_id,
                 "upscale"
             )
         elif request_data.provider == "recraft":
             celery_task = generate_recraft_image_task.delay(
                 image_db_id,
                 base64.b64encode(image_bytes).decode('utf-8'),
-                request_data.model_dump(),
+                request_data_with_task_id,
                 "upscale"
             )
         else:
@@ -672,11 +693,15 @@ async def downscale_endpoint(
     
     logger.info(f"Sending downscale task to Celery for db_id: {image_db_id}")
     
+    # Add task_id to request data for Celery task
+    request_data_with_task_id = request_data.model_dump()
+    request_data_with_task_id["task_id"] = task_id
+
     # Dispatch Celery task
     celery_task = generate_downscale_image_task.delay(
         image_db_id,
         base64.b64encode(image_bytes).decode('utf-8'),
-        request_data.model_dump()
+        request_data_with_task_id
     )
     
     logger.info(f"Celery task ID: {celery_task.id} for image_db_id: {image_db_id}")
