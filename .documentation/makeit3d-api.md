@@ -1,27 +1,26 @@
 # MakeIt3D BFF API Developer Guide
 
-**Version:** v2.0.0  
-**Base URL:** `http://localhost:8000` (replace with your deployment URL)
+**Version:** v1.0.0  
+**Base URL:** `https://api.makeit3d.io`
 
 ## Index
 
 1. [Overview](#overview)
-2. [What's New in v2.0](#-whats-new-in-v20)
-   - [Multi-Provider Support](#multi-provider-support)
-   - [New Endpoints](#new-endpoints)
-   - [Updated Endpoints](#updated-endpoints)
-   - [Provider Selection](#provider-selection)
+2. [What's New in v3.0](#-whats-new-in-v30)
+   - [Server-Managed Task IDs](#server-managed-task-ids)
+   - [Simplified Request Format](#simplified-request-format)
+   - [Enhanced Status Polling](#enhanced-status-polling)
 3. [Core API Principles](#core-api-principles)
    - [Provider Selection](#1-provider-selection)
-   - [Client-Generated Task IDs](#2-client-generated-task-ids)
+   - [Server-Generated Task IDs](#2-server-generated-task-ids)
    - [Asset Upload First](#3-asset-upload-first)
    - [Asynchronous Processing](#4-asynchronous-processing)
    - [Automatic Asset Management](#5-automatic-asset-management)
    - [Database Integration](#6-database-integration)
 4. [Authentication](#authentication)
-   - [Getting JWT Tokens](#getting-jwt-tokens)
+   - [Getting API Keys](#getting-api-keys)
    - [Auth Error Responses](#auth-error-responses)
-   - [Test Users](#test-users)
+   - [Test API Key](#test-api-key)
 5. [Generation Endpoints](#generation-endpoints)
    - [🎨 Image-to-Image Generation](#-image-to-image-generation)
    - [🔶 Text-to-Image Generation](#-text-to-image-generation)
@@ -30,27 +29,24 @@
    - [✏️ Sketch-to-Image Generation](#️-sketch-to-image-generation)
    - [🖼️ Background Removal](#️-background-removal)
    - [🎨 Search and Recolor](#-search-and-recolor)
+   - [📈 Image Upscaling](#-image-upscaling)
+   - [📉 Image Downscaling](#-image-downscaling)
    - [🔧 Model Refinement](#-model-refinement)
 6. [Status Polling](#status-polling)
    - [📊 Check Task Status](#-check-task-status)
 7. [Implementation Examples](#implementation-examples)
    - [Multi-Provider Image Generation](#multi-provider-image-generation)
    - [Background Removal with Fallback](#background-removal-with-fallback)
-   - [Search and Recolor Implementation](#search-and-recolor-implementation)
-   - [3D Model Generation with Multiple Providers](#3d-model-generation-with-multiple-providers)
+   - [Complete Workflow Example](#complete-workflow-example)
 8. [Response Codes](#response-codes)
 9. [Provider-Specific Notes](#provider-specific-notes)
 10. [Tips for Frontend Integration](#tips-for-frontend-integration)
-    - [Provider Selection Strategy](#1-provider-selection-strategy)
-    - [Polling Strategy with Provider Awareness](#2-polling-strategy-with-provider-awareness)
-    - [Error Handling with Provider Context](#3-error-handling-with-provider-context)
-    - [Progress Indication by Provider](#4-progress-indication-by-provider)
 
 ---
 
 ## Overview
 
-The MakeIt3D Backend-For-Frontend (BFF) API serves as an intermediary between your mobile app and multiple AI services. It now supports **5 AI providers** across **8 endpoints** with unified parameter handling:
+The MakeIt3D Backend-For-Frontend (BFF) API serves as an intermediary between your application and multiple AI services. It now supports **5 AI providers** across **10 endpoints** with **server-managed task IDs**:
 
 - **🎨 2D Image Generation** via OpenAI, Stability AI, Recraft, and Flux
 - **🔶 3D Model Generation** via Tripo AI and Stability AI  
@@ -58,20 +54,66 @@ The MakeIt3D Backend-For-Frontend (BFF) API serves as an intermediary between yo
 - **🖼️ Background Removal** via Stability AI and Recraft
 - **🎨 Object Recoloring** via Stability AI's Search and Recolor
 - **📈 Image Upscaling** via Stability AI and Recraft AI
-- **📉 Image Downscaling** via basic image processing with Pillow
+- **📉 Image Downscaling** via basic image processing
 - **🔧 Model Refinement** via Tripo AI
 - **📦 Asset Management** with Supabase Storage integration
 - **⚡ Asynchronous Processing** with real-time status updates
 
-## 🆕 What's New in v2.0
+## 🆕 What's New in v3.0
+
+### Server-Managed Task IDs
+**BREAKING CHANGE**: Clients no longer provide `task_id` in requests. The BFF now generates all task IDs automatically using the format:
+```
+{operation}-{timestamp}-{uuid8}
+
+Examples:
+- "remove-bg-1750625595-193ca577"
+- "upscale-1750625602-eb3f0bc8"
+- "text-to-image-1750625610-a1b2c3d4"
+```
+
+### Simplified Request Format
+Request bodies are now cleaner without the `task_id` field:
+
+**Before (v2.0):**
+```javascript
+{
+  "task_id": "client-generated-id-123",  // ❌ No longer required
+  "provider": "stability",
+  "input_image_asset_url": "https://...",
+  "prompt": "Make it blue"
+}
+```
+
+**Now (v3.0):**
+```javascript
+{
+  "provider": "stability",                // ✅ Still required
+  "input_image_asset_url": "https://...", // ✅ Still required
+  "prompt": "Make it blue"                // ✅ Still required
+}
+```
+
+### Enhanced Status Polling
+The status endpoint now auto-detects the service type, making the `service` parameter optional:
+
+**Before:**
+```javascript
+GET /tasks/{task_id}/status?service=stability
+```
+
+**Now:**
+```javascript
+GET /tasks/{task_id}/status  // Auto-detects service type
+```
 
 ### Multi-Provider Support
-Each endpoint now supports multiple AI providers with provider-specific parameters:
+Each endpoint supports multiple AI providers with provider-specific parameters:
 
 | Endpoint | OpenAI | Tripo | Stability | Recraft | Flux | Image Processing |
 |----------|--------|-------|-----------|---------|------|------------------|
+| `/text-to-image` | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ |
 | `/image-to-image` | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ |
-| `/text-to-image` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | `/text-to-model` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `/image-to-model` | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | `/sketch-to-image` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
@@ -82,20 +124,6 @@ Each endpoint now supports multiple AI providers with provider-specific paramete
 | `/downscale` | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | `/refine-model` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 
-### New Endpoints
-- **`/text-to-image`** - New 2D image generation from text using OpenAI, Stability, and Recraft
-- **`/sketch-to-image`** - Generates 2D images from sketches using Stability AI
-- **`/remove-background`** - Background removal functionality
-- **`/search-and-recolor`** - Object segmentation and recoloring using Stability AI
-- **`/upscale`** - AI-powered image upscaling using Stability AI and Recraft
-- **`/downscale`** - Basic image processing for file size reduction with aspect ratio control
-
-### Updated Endpoints
-- **`/text-to-model`** - Now exclusively for 3D model generation using Tripo AI only
-
-### Provider Selection
-All endpoints now require a `provider` field to specify which AI service to use.
-
 ## Core API Principles
 
 ### 1. Provider Selection
@@ -103,30 +131,31 @@ Every generation request must specify which AI provider to use:
 
 ```javascript
 {
-  "provider": "openai",  // Required: "openai", "stability", "recraft", "flux", or "tripo"
-  "task_id": "task-workspace-abc123",
+  "provider": "stability",  // Required: "openai", "stability", "recraft", "flux", or "tripo"
   // ... other parameters
 }
 ```
 
-### 2. Client-Generated Task IDs
-Every generation request requires a unique `task_id` that you generate. This serves as the overall job identifier for tracking your workspace items.
+### 2. Server-Generated Task IDs
+**The BFF automatically generates unique task IDs** for every request. Clients never provide task IDs.
 
-```javascript
-const taskId = `task-workspace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-```
+**Workflow:**
+1. Client submits request (no `task_id` field)
+2. BFF generates task ID: `{operation}-{timestamp}-{uuid8}`
+3. BFF returns the generated task ID
+4. Client uses BFF-provided task ID for status polling
 
 ### 3. Asset Upload First
 All binary inputs (images, sketches, models) must be uploaded to your Supabase Storage **before** calling generation endpoints. Then provide the full Supabase URL to the API.
 
 ### 4. Asynchronous Processing
-Generation endpoints return a `celery_task_id` immediately. Use this to poll the status endpoint for real-time updates and final results.
+Generation endpoints return a server-generated `task_id` immediately. Use this to poll the status endpoint for real-time updates and final results.
 
 ### 5. Automatic Asset Management
 The BFF automatically downloads temporary AI results and uploads them to your Supabase Storage, providing you with permanent URLs.
 
 ### 6. Database Integration
-The BFF updates your Supabase tables (`concept_images`, `models`) with metadata, status, and final asset URLs.
+The BFF updates your Supabase tables with metadata, status, and final asset URLs using the server-generated task IDs.
 
 ---
 
@@ -147,7 +176,7 @@ API keys are obtained through the registration endpoint for approved application
 
 ```javascript
 // Register for an API key (requires shared secret)
-const response = await fetch('/auth/register', {
+const response = await fetch('https://api.makeit3d.io/auth/register', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -187,7 +216,7 @@ const { api_key } = await response.json();
 
 For development and testing, you can use this test API key:
 - **Test Key**: `makeit3d_test_sk_dev_001`
-- **Tenant**: `development_tenant` (development type)
+- **Tenant**: `dev_001` (development type)
 
 ---
 
@@ -224,20 +253,6 @@ Register a new API key for your application or store.
 }
 ```
 
-### 🏥 Auth Health Check
-
-Check the health of the authentication service.
-
-**Endpoint:** `GET /auth/health`
-
-**Response:**
-```javascript
-{
-  "status": "healthy",
-  "service": "auth"
-}
-```
-
 ---
 
 ## Generation Endpoints
@@ -246,12 +261,11 @@ Check the health of the authentication service.
 
 Transform an input image into concept variations using multiple AI providers.
 
-**Endpoint:** `POST /generation/image-to-image`
+**Endpoint:** `POST /generate/image-to-image`
 
 #### OpenAI Provider
 ```javascript
 {
-  "task_id": "task-workspace-abc123",           // Required: Your unique task ID
   "provider": "openai",                         // Required: Provider selection
   "prompt": "A futuristic cityscape at dusk",  // Required: Description of desired output
   "input_image_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/path/image.png", // Required: Full Supabase URL
@@ -268,7 +282,6 @@ Transform an input image into concept variations using multiple AI providers.
 #### Stability AI Provider
 ```javascript
 {
-  "task_id": "task-workspace-def456",
   "provider": "stability",
   "prompt": "A futuristic cityscape at dusk",
   "input_image_asset_url": "https://...",
@@ -285,7 +298,6 @@ Transform an input image into concept variations using multiple AI providers.
 #### Recraft Provider
 ```javascript
 {
-  "task_id": "task-workspace-ghi789",
   "provider": "recraft",
   "prompt": "A futuristic cityscape at dusk",
   "input_image_asset_url": "https://...",
@@ -305,13 +317,12 @@ Transform an input image into concept variations using multiple AI providers.
 #### Flux Provider
 ```javascript
 {
-  "task_id": "task-workspace-mno012",
   "provider": "flux",
   "prompt": "A futuristic cityscape at dusk",
   "input_image_asset_url": "https://...",
   
   // Flux-specific parameters:
-  "aspect_ratio": "1:1",                      // Optional: "1:1", "16:9", "9:16", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "16:9"
+  "aspect_ratio": "1:1",                      // Optional: "1:1", "16:9", "9:16", "21:9", "2:3", "3:2", "4:5", "5:4"
   "output_format": "png",                     // Optional: "png", "jpeg"
   "safety_tolerance": 2,                      // Optional: 0-6, higher = more permissive
   "prompt_upsampling": false                  // Optional: Enhance prompt automatically
@@ -321,7 +332,7 @@ Transform an input image into concept variations using multiple AI providers.
 **Response:**
 ```javascript
 {
-  "celery_task_id": "abc123xyz456"  // Use this to poll status
+  "task_id": "image-to-image-1750625610-a1b2c3d4"  // Server-generated task ID for polling
 }
 ```
 
@@ -331,12 +342,11 @@ Transform an input image into concept variations using multiple AI providers.
 
 Generate 2D images from text descriptions using multiple AI providers.
 
-**Endpoint:** `POST /generation/text-to-image`
+**Endpoint:** `POST /generate/text-to-image`
 
 #### OpenAI Provider
 ```javascript
 {
-  "task_id": "task-workspace-def456",                    // Required
   "provider": "openai",                                  // Required
   "prompt": "A violet cartoon flying elephant with big ears", // Required
   
@@ -351,7 +361,6 @@ Generate 2D images from text descriptions using multiple AI providers.
 #### Stability AI Provider
 ```javascript
 {
-  "task_id": "task-workspace-ghi789",
   "provider": "stability",
   "prompt": "A violet cartoon flying elephant with big ears",
   
@@ -367,7 +376,6 @@ Generate 2D images from text descriptions using multiple AI providers.
 #### Recraft Provider
 ```javascript
 {
-  "task_id": "task-workspace-jkl012",
   "provider": "recraft",
   "prompt": "A violet cartoon flying elephant with big ears",
   
@@ -382,20 +390,26 @@ Generate 2D images from text descriptions using multiple AI providers.
 }
 ```
 
+**Response:**
+```javascript
+{
+  "task_id": "text-to-image-1750625615-e5f6g7h8"  // Server-generated task ID for polling
+}
+```
+
 ---
 
 ### 🔶 Text-to-Model Generation
 
 Generate 3D models from text descriptions using Tripo AI.
 
-**Endpoint:** `POST /generation/text-to-model`
+**Endpoint:** `POST /generate/text-to-model`
 
 **Note:** This endpoint generates 3D models and only supports Tripo AI.
 
 #### Tripo AI Provider
 ```javascript
 {
-  "task_id": "task-workspace-xyz789",                    // Required
   "provider": "tripo",                                   // Required: Only "tripo" supported
   "prompt": "A medieval castle with tall towers",       // Required: Description of 3D model
   
@@ -413,7 +427,7 @@ Generate 3D models from text descriptions using Tripo AI.
 **Response:**
 ```javascript
 {
-  "celery_task_id": "def456ghi789"  // Use this to poll status
+  "task_id": "text-to-model-1750625620-i9j0k1l2"  // Server-generated task ID for polling
 }
 ```
 
@@ -423,12 +437,11 @@ Generate 3D models from text descriptions using Tripo AI.
 
 Generate 3D models from images using Tripo AI or Stability AI.
 
-**Endpoint:** `POST /generation/image-to-model`
+**Endpoint:** `POST /generate/image-to-model`
 
 #### Tripo AI Provider (Multiview Support)
 ```javascript
 {
-  "task_id": "task-workspace-ghi789",
   "provider": "tripo",                        // Required
   "input_image_asset_urls": [                 // Required: 1-4 images
     "https://[project].supabase.co/storage/v1/object/public/bucket/front.png",  // Front view (required)
@@ -452,7 +465,6 @@ Generate 3D models from images using Tripo AI or Stability AI.
 #### Stability AI Provider (SPAR3D)
 ```javascript
 {
-  "task_id": "task-workspace-mno345",
   "provider": "stability",                    // Required
   "input_image_asset_urls": [                 // Required: Single image
     "https://[project].supabase.co/storage/v1/object/public/bucket/photo.png"
@@ -470,17 +482,23 @@ Generate 3D models from images using Tripo AI or Stability AI.
 }
 ```
 
+**Response:**
+```javascript
+{
+  "task_id": "image-to-model-1750625625-m3n4o5p6"  // Server-generated task ID for polling
+}
+```
+
 ---
 
 ### ✏️ Sketch-to-Image Generation
 
 Generate 2D images from hand-drawn sketches using Stability AI.
 
-**Endpoint:** `POST /generation/sketch-to-image`
+**Endpoint:** `POST /generate/sketch-to-image`
 
 ```javascript
 {
-  "task_id": "task-workspace-jkl012",
   "provider": "stability",                    // Always "stability" for this endpoint
   "input_sketch_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/sketch.png",
   "prompt": "Modern furniture piece",         // Required: Description
@@ -493,18 +511,24 @@ Generate 2D images from hand-drawn sketches using Stability AI.
 }
 ```
 
+**Response:**
+```javascript
+{
+  "task_id": "sketch-to-image-1750625630-q7r8s9t0"  // Server-generated task ID for polling
+}
+```
+
 ---
 
 ### 🖼️ Background Removal
 
 Remove backgrounds from images using Stability AI or Recraft.
 
-**Endpoint:** `POST /generation/remove-background`
+**Endpoint:** `POST /generate/remove-background`
 
 #### Stability AI Provider
 ```javascript
 {
-  "task_id": "task-workspace-pqr678",
   "provider": "stability",                    // Required
   "input_image_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/image.png",
   
@@ -516,7 +540,6 @@ Remove backgrounds from images using Stability AI or Recraft.
 #### Recraft Provider
 ```javascript
 {
-  "task_id": "task-workspace-stu901",
   "provider": "recraft",                      // Required
   "input_image_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/image.png",
   
@@ -525,18 +548,24 @@ Remove backgrounds from images using Stability AI or Recraft.
 }
 ```
 
+**Response:**
+```javascript
+{
+  "task_id": "remove-bg-1750625635-u1v2w3x4"  // Server-generated task ID for polling
+}
+```
+
 ---
 
 ### 🎨 Search and Recolor
 
-Automatically segment and recolor specific objects in an image using Stability AI. This endpoint finds objects based on a description and changes their colors without requiring manual masks.
+Automatically segment and recolor specific objects in an image using Stability AI.
 
-**Endpoint:** `POST /generation/search-and-recolor`
+**Endpoint:** `POST /generate/search-and-recolor`
 
 #### Stability AI Provider
 ```javascript
 {
-  "task_id": "task-workspace-xyz123",
   "provider": "stability",                    // Always "stability" for this endpoint
   "input_image_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/image.png",
   "prompt": "light blue cat with dark blue stripes, maintaining the same pose and expression", // Required: Description of desired recoloring
@@ -547,30 +576,28 @@ Automatically segment and recolor specific objects in an image using Stability A
   "grow_mask": 3,                            // Optional: 0-20, grows mask edges for smoother transitions (default: 3)
   "seed": 0,                                 // Optional: Reproducibility seed (0 for random)
   "output_format": "png",                    // Optional: "png", "jpeg", "webp" (default: "png")
-  "style_preset": "photographic"             // Optional: Style preset (same options as other Stability endpoints)
+  "style_preset": "photographic"             // Optional: Style preset
 }
 ```
 
-**Key Features:**
-- **Automatic Segmentation**: No manual mask required - just describe what to find
-- **Precise Recoloring**: Changes only the specified object while preserving everything else
-- **Smooth Transitions**: `grow_mask` parameter ensures natural edges around recolored areas
-- **Style Control**: Optional style presets for consistent artistic output
-
-
+**Response:**
+```javascript
+{
+  "task_id": "search-recolor-1750625640-y5z6a7b8"  // Server-generated task ID for polling
+}
+```
 
 ---
 
 ### 📈 Image Upscaling
 
-Enhance image resolution and quality using AI-powered upscaling with Stability AI or Recraft.
+Enhance image resolution and quality using AI-powered upscaling.
 
-**Endpoint:** `POST /generation/upscale`
+**Endpoint:** `POST /generate/upscale`
 
 #### Stability AI Provider
 ```javascript
 {
-  "task_id": "upscale-stability-001",         // Required: Your unique task ID
   "provider": "stability",                    // Required: Provider selection
   "input_image_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/image.png", // Required: Full Supabase URL
   
@@ -583,7 +610,6 @@ Enhance image resolution and quality using AI-powered upscaling with Stability A
 #### Recraft Provider
 ```javascript
 {
-  "task_id": "upscale-recraft-001",          // Required: Your unique task ID
   "provider": "recraft",                     // Required: Provider selection
   "input_image_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/image.png", // Required: Full Supabase URL
   
@@ -593,21 +619,25 @@ Enhance image resolution and quality using AI-powered upscaling with Stability A
 }
 ```
 
-
+**Response:**
+```javascript
+{
+  "task_id": "upscale-1750625645-c9d0e1f2"  // Server-generated task ID for polling
+}
+```
 
 ---
 
 ### 📉 Image Downscaling
 
-Reduce image file sizes to meet specific constraints while maintaining quality using basic image processing.
+Reduce image file sizes to meet specific constraints while maintaining quality.
 
-**Endpoint:** `POST /generation/downscale`
+**Endpoint:** `POST /generate/downscale`
 
 **Note:** This endpoint uses basic image processing (Pillow) rather than AI providers for fast, reliable file size reduction.
 
 ```javascript
 {
-  "task_id": "downscale-001",                           // Required: Your unique task ID
   "input_image_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/image.png", // Required: Full Supabase URL
   "max_size_mb": 0.5,                                   // Required: Target maximum file size in MB (0.1-20.0)
   "aspect_ratio_mode": "original",                      // Required: "original" or "square"
@@ -625,14 +655,12 @@ Reduce image file sizes to meet specific constraints while maintaining quality u
   - `"jpeg"`: Converts to JPEG (good for photos, smaller files)
   - `"png"`: Converts to PNG (good for graphics with transparency)
 
-
-
-**Input Constraints:**
-- Maximum input file size: 20MB
-- Supported formats: JPEG, PNG, GIF, WebP, BMP, TIFF
-- Images smaller than target size are still processed (for format conversion and square padding)
-
-**Response Note:** The downscale endpoint returns `image_url` in the status response (not `asset_url` like other endpoints).
+**Response:**
+```javascript
+{
+  "task_id": "downscale-1750625650-g3h4i5j6"  // Server-generated task ID for polling
+}
+```
 
 ---
 
@@ -640,11 +668,10 @@ Reduce image file sizes to meet specific constraints while maintaining quality u
 
 Refine and improve existing 3D models using Tripo AI.
 
-**Endpoint:** `POST /generation/refine-model`
+**Endpoint:** `POST /generate/refine-model`
 
 ```javascript
 {
-  "task_id": "task-workspace-mno345",
   "provider": "tripo",                        // Always "tripo" for this endpoint
   "input_model_asset_url": "https://[project].supabase.co/storage/v1/object/public/bucket/model.glb",
   "prompt": "Make it look more weathered and ancient",
@@ -660,34 +687,31 @@ Refine and improve existing 3D models using Tripo AI.
 }
 ```
 
+**Response:**
+```javascript
+{
+  "task_id": "refine-model-1750625655-k7l8m9n0"  // Server-generated task ID for polling
+}
+```
+
 ---
 
 ## Status Polling
 
 ### 📊 Check Task Status
 
-Poll for real-time updates on your generation tasks.
+Poll for real-time updates on your generation tasks using the server-generated task ID.
 
-**Endpoint:** `GET /tasks/{celery_task_id}/status?service={service}`
+**Endpoint:** `GET /tasks/{task_id}/status`
 
 **Parameters:**
-- `celery_task_id`: The ID returned from generation endpoints
-- `service`: Either `"openai"` or `"tripoai"` (Stability and Recraft tasks use OpenAI-style polling)
-
-**Provider Service Mapping:**
-- OpenAI tasks: `service=openai`
-- Tripo AI tasks: `service=tripoai`  
-- Stability AI tasks: `service=openai`
-- Recraft tasks: `service=openai`
-- Flux tasks: `service=openai`
-- Upscale tasks (all providers): `service=openai`
-- Downscale tasks (image processing): `service=openai`
+- `task_id`: The server-generated ID returned from generation endpoints
+- `service`: Optional service hint (auto-detected if not provided)
 
 **Example:**
 ```javascript
-const response = await fetch(`/tasks/abc123xyz456/status?service=openai`, {
+const response = await fetch(`https://api.makeit3d.io/tasks/remove-bg-1750625635-u1v2w3x4/status`, {
   headers: {
-    'Authorization': `Bearer ${session.access_token}`,
     'X-API-Key': 'your-api-key'
   }
 });
@@ -698,7 +722,7 @@ const response = await fetch(`/tasks/abc123xyz456/status?service=openai`, {
 #### ⏳ Pending
 ```javascript
 {
-  "task_id": "abc123xyz456",
+  "task_id": "remove-bg-1750625635-u1v2w3x4",
   "status": "pending"
 }
 ```
@@ -706,24 +730,25 @@ const response = await fetch(`/tasks/abc123xyz456/status?service=openai`, {
 #### 🔄 Processing
 ```javascript
 {
-  "task_id": "abc123xyz456", 
-  "status": "processing"
+  "task_id": "remove-bg-1750625635-u1v2w3x4", 
+  "status": "processing",
+  "progress": 75
 }
 ```
 
 #### ✅ Complete
 ```javascript
 {
-  "task_id": "abc123xyz456",
+  "task_id": "remove-bg-1750625635-u1v2w3x4",
   "status": "complete",
-  "asset_url": "https://[project].supabase.co/storage/v1/object/public/generated/result.png"
+  "asset_url": "https://[project].supabase.co/storage/v1/object/sign/images/remove-bg-1750625635-u1v2w3x4/result.png?token=..."
 }
 ```
 
 #### ❌ Failed
 ```javascript
 {
-  "task_id": "abc123xyz456",
+  "task_id": "remove-bg-1750625635-u1v2w3x4",
   "status": "failed",
   "error": "AI service timed out"
 }
@@ -731,14 +756,171 @@ const response = await fetch(`/tasks/abc123xyz456/status?service=openai`, {
 
 ---
 
+## Implementation Examples
 
+### Multi-Provider Image Generation
+
+```javascript
+const generateImage = async (prompt, provider = 'openai') => {
+  // 1. Submit generation request (no task_id needed)
+  const response = await fetch('https://api.makeit3d.io/generate/text-to-image', {
+    method: 'POST',
+    headers: {
+      'X-API-Key': 'your-api-key',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      provider: provider,
+      prompt: prompt,
+      style: provider === 'openai' ? 'vivid' : undefined,
+      style_preset: provider === 'stability' ? 'photographic' : undefined
+    })
+  });
+  
+  const { task_id } = await response.json();
+  console.log(`Task submitted with ID: ${task_id}`);
+  
+  // 2. Poll for completion using server-generated task ID
+  return await pollForCompletion(task_id);
+};
+
+const pollForCompletion = async (taskId, maxAttempts = 30) => {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const response = await fetch(`https://api.makeit3d.io/tasks/${taskId}/status`); // No service parameter needed
+    const status = await response.json();
+    
+    if (status.status === 'complete') return status.asset_url;
+    if (status.status === 'failed') throw new Error(status.error);
+    
+    // Progressive delay
+    const delay = Math.min(1000 * Math.pow(1.5, attempt), 5000);
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+  throw new Error('Polling timeout');
+};
+```
+
+### Background Removal with Fallback
+
+```javascript
+const removeBackground = async (imageUrl) => {
+  const providers = ['stability', 'recraft'];
+  
+  for (const provider of providers) {
+    try {
+      const response = await fetch('https://api.makeit3d.io/generate/remove-background', {
+        method: 'POST',
+        headers: {
+          'X-API-Key': 'your-api-key',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          provider: provider,
+          input_image_asset_url: imageUrl,
+          output_format: 'png'
+        })
+      });
+      
+      const { task_id } = await response.json();
+      const result = await pollForCompletion(task_id);
+      
+      console.log(`✅ Background removed using ${provider}`);
+      return result;
+      
+    } catch (error) {
+      console.log(`❌ ${provider} failed: ${error.message}`);
+      if (provider === providers[providers.length - 1]) {
+        throw new Error('All providers failed');
+      }
+    }
+  }
+};
+```
+
+### Complete Workflow Example
+
+```javascript
+const processImageWorkflow = async (originalImageUrl) => {
+  try {
+    // Step 1: Remove background
+    console.log('🔄 Removing background...');
+    const bgRemovedResponse = await fetch('https://api.makeit3d.io/generate/remove-background', {
+      method: 'POST',
+      headers: {
+        'X-API-Key': 'your-api-key',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        provider: 'stability',
+        input_image_asset_url: originalImageUrl
+      })
+    });
+    
+    const { task_id: bgTaskId } = await bgRemovedResponse.json();
+    const bgRemovedUrl = await pollForCompletion(bgTaskId);
+    console.log(`✅ Background removed: ${bgTaskId}`);
+    
+    // Step 2: Upscale the result
+    console.log('🔄 Upscaling image...');
+    const upscaleResponse = await fetch('https://api.makeit3d.io/generate/upscale', {
+      method: 'POST',
+      headers: {
+        'X-API-Key': 'your-api-key',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        provider: 'stability',
+        input_image_asset_url: bgRemovedUrl
+      })
+    });
+    
+    const { task_id: upscaleTaskId } = await upscaleResponse.json();
+    const upscaledUrl = await pollForCompletion(upscaleTaskId);
+    console.log(`✅ Image upscaled: ${upscaleTaskId}`);
+    
+    // Step 3: Optimize file size
+    console.log('🔄 Optimizing file size...');
+    const downscaleResponse = await fetch('https://api.makeit3d.io/generate/downscale', {
+      method: 'POST',
+      headers: {
+        'X-API-Key': 'your-api-key',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        input_image_asset_url: upscaledUrl,
+        max_size_mb: 0.5,
+        aspect_ratio_mode: 'original',
+        output_format: 'png'
+      })
+    });
+    
+    const { task_id: downscaleTaskId } = await downscaleResponse.json();
+    const finalUrl = await pollForCompletion(downscaleTaskId);
+    console.log(`✅ File optimized: ${downscaleTaskId}`);
+    
+    return {
+      original: originalImageUrl,
+      backgroundRemoved: bgRemovedUrl,
+      upscaled: upscaledUrl,
+      final: finalUrl
+    };
+    
+  } catch (error) {
+    console.error('❌ Workflow failed:', error.message);
+    throw error;
+  }
+};
+```
+
+---
 
 ## Response Codes
 
 | Code | Meaning | Description |
 |------|---------|-------------|
-| `202` | Accepted | Task initiated successfully, use `celery_task_id` to poll |
+| `200` | OK | Task initiated successfully, use returned `task_id` to poll |
 | `400` | Bad Request | Invalid request format, parameters, or unsupported provider |
+| `401` | Unauthorized | Invalid or missing API key |
 | `404` | Not Found | Task not found or still pending |
 | `500` | Internal Error | Server error or AI service failure |
 
@@ -775,7 +957,43 @@ const response = await fetch(`/tasks/abc123xyz456/status?service=openai`, {
 
 ## Tips for Frontend Integration
 
-### 1. **Provider Selection Strategy**
+### 1. **Server-Generated Task ID Handling**
+```javascript
+// Always use the task ID returned by the server
+const submitJob = async (requestData) => {
+  const response = await fetch('/generate/text-to-image', {
+    method: 'POST',
+    headers: {
+      'X-API-Key': 'your-api-key',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(requestData) // No task_id field needed
+  });
+  
+  const { task_id } = await response.json(); // Use server-generated ID
+  return task_id;
+};
+```
+
+### 2. **Simplified Polling Strategy**
+```javascript
+const pollTaskStatus = async (taskId, maxAttempts = 30) => {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const response = await fetch(`/tasks/${taskId}/status`); // No service parameter needed
+    const status = await response.json();
+    
+    if (status.status === 'complete') return status;
+    if (status.status === 'failed') throw new Error(status.error);
+    
+    // Progressive delay
+    const delay = Math.min(1000 * Math.pow(1.5, attempt), 5000);
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+  throw new Error('Polling timeout');
+};
+```
+
+### 3. **Provider Selection Strategy**
 ```javascript
 const selectProvider = (operation, requirements) => {
   if (operation === '3d-model') {
@@ -792,43 +1010,6 @@ const selectProvider = (operation, requirements) => {
 };
 ```
 
-### 2. **Polling Strategy with Provider Awareness**
-```javascript
-const pollWithBackoff = async (celeryTaskId, provider, maxAttempts = 30) => {
-  const service = provider === 'tripo' ? 'tripoai' : 'openai';
-  
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const response = await fetch(`/tasks/${celeryTaskId}/status?service=${service}`);
-    const status = await response.json();
-    
-    if (status.status === 'complete') return status;
-    if (status.status === 'failed') throw new Error(status.error);
-    
-    // Provider-specific delays
-    const baseDelay = provider === 'tripo' ? 3000 : 1000; // Tripo takes longer
-    const delay = attempt < 3 ? Math.pow(2, attempt) * baseDelay : baseDelay * 5;
-    await new Promise(resolve => setTimeout(resolve, delay));
-  }
-  throw new Error('Polling timeout');
-};
-```
-
-### 3. **Error Handling with Provider Context**
-```javascript
-try {
-  const result = await generateWithProvider(taskId, prompt, provider);
-  updateUI(result.asset_url);
-} catch (error) {
-  if (error.message.includes('Unsupported provider')) {
-    showError(`${provider} doesn't support this operation. Try a different provider.`);
-  } else if (error.message.includes('timeout')) {
-    showError(`${provider} is taking longer than expected. Please try again.`);
-  } else {
-    showError(`${provider} generation failed: ${error.message}`);
-  }
-}
-```
-
 ### 4. **Progress Indication by Provider**
 - **OpenAI**: 10-30 seconds for images
 - **Stability AI**: 15-45 seconds for images, 60-180 seconds for 3D models, 10-20 seconds for upscaling
@@ -838,4 +1019,4 @@ try {
 
 ---
 
-This updated API provides a comprehensive multi-provider pipeline for AI-powered content generation with unified parameter handling and robust provider selection. The new architecture ensures flexibility while maintaining backward compatibility and consistent response formats across all providers. 
+This updated API provides a streamlined experience with server-managed task IDs, simplified request formats, and enhanced auto-detection capabilities. The new architecture ensures better reliability and consistency while maintaining full provider flexibility and robust error handling. 

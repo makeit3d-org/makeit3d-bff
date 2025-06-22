@@ -2,7 +2,7 @@
 
 **Base URL**: `https://api.makeit3d.io`
 
-This document provides ready-to-use cURL commands for all MakeIT3D BFF API endpoints.
+This document provides ready-to-use cURL commands for all MakeIT3D BFF API endpoints with **server-managed task IDs**.
 
 ## 🔐 Authentication
 
@@ -64,7 +64,6 @@ curl -X POST https://api.makeit3d.io/generate/text-to-image \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "text-to-image-openai-001",
     "provider": "openai",
     "prompt": "A violet colored cartoon flying elephant with big flapping ears",
     "style": "vivid",
@@ -74,13 +73,19 @@ curl -X POST https://api.makeit3d.io/generate/text-to-image \
   }'
 ```
 
+**Response:**
+```json
+{
+  "task_id": "text-to-image-1750625610-a1b2c3d4"
+}
+```
+
 #### Stability AI
 ```bash
 curl -X POST https://api.makeit3d.io/generate/text-to-image \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "text-to-image-stability-001",
     "provider": "stability",
     "prompt": "A majestic dragon flying over a fantasy castle at sunset",
     "style_preset": "fantasy-art",
@@ -97,7 +102,6 @@ curl -X POST https://api.makeit3d.io/generate/text-to-image \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "text-to-image-recraft-001",
     "provider": "recraft",
     "prompt": "A futuristic robot in a cyberpunk city with neon lights",
     "style": "digital_illustration",
@@ -113,7 +117,6 @@ curl -X POST https://api.makeit3d.io/generate/text-to-image \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "text-to-image-flux-001",
     "provider": "flux",
     "prompt": "A serene mountain landscape with a crystal clear lake",
     "width": 1024,
@@ -131,7 +134,6 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "image-to-image-openai-001",
     "provider": "openai",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "prompt": "Transform this into a watercolor painting",
@@ -141,13 +143,19 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
   }'
 ```
 
+**Response:**
+```json
+{
+  "task_id": "image-to-image-1750625615-e5f6g7h8"
+}
+```
+
 #### Stability AI
 ```bash
 curl -X POST https://api.makeit3d.io/generate/image-to-image \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "image-to-image-stability-001",
     "provider": "stability",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "prompt": "Make this image look like a vintage photograph",
@@ -165,7 +173,6 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "image-to-image-recraft-001",
     "provider": "recraft",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "prompt": "Convert this to a cartoon style illustration",
@@ -182,7 +189,6 @@ curl -X POST https://api.makeit3d.io/generate/image-to-image \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "image-to-image-flux-001",
     "provider": "flux",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "prompt": "Transform this into a sci-fi scene",
@@ -199,7 +205,7 @@ curl -X POST https://api.makeit3d.io/generate/sketch-to-image \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "sketch-to-image-001",
+    "provider": "stability",
     "input_sketch_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/sketch-cat.jpg",
     "prompt": "A realistic sports car based on this sketch",
     "control_strength": 0.8,
@@ -210,6 +216,13 @@ curl -X POST https://api.makeit3d.io/generate/sketch-to-image \
   }'
 ```
 
+**Response:**
+```json
+{
+  "task_id": "sketch-to-image-1750625620-i9j0k1l2"
+}
+```
+
 ### 4. Remove Background
 
 #### Stability AI
@@ -218,11 +231,17 @@ curl -X POST https://api.makeit3d.io/generate/remove-background \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "remove-bg-stability-001",
     "provider": "stability",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "output_format": "png"
   }'
+```
+
+**Response:**
+```json
+{
+  "task_id": "remove-bg-1750625625-m3n4o5p6"
+}
 ```
 
 #### Recraft AI
@@ -231,7 +250,6 @@ curl -X POST https://api.makeit3d.io/generate/remove-background \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "remove-bg-recraft-001",
     "provider": "recraft",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "response_format": "url"
@@ -245,7 +263,6 @@ curl -X POST https://api.makeit3d.io/generate/image-inpaint \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "image-inpaint-001",
     "provider": "recraft",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "input_mask_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/mask.jpg",
@@ -259,6 +276,13 @@ curl -X POST https://api.makeit3d.io/generate/image-inpaint \
   }'
 ```
 
+**Response:**
+```json
+{
+  "task_id": "image-inpaint-1750625630-q7r8s9t0"
+}
+```
+
 ### 6. Search and Recolor (Stability AI only)
 
 ```bash
@@ -266,7 +290,6 @@ curl -X POST https://api.makeit3d.io/generate/search-and-recolor \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "search-recolor-001",
     "provider": "stability",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "prompt": "Make it bright red with metallic finish",
@@ -279,6 +302,13 @@ curl -X POST https://api.makeit3d.io/generate/search-and-recolor \
   }'
 ```
 
+**Response:**
+```json
+{
+  "task_id": "search-recolor-1750625635-u1v2w3x4"
+}
+```
+
 ### 7. Upscale Images
 
 #### Stability AI
@@ -287,12 +317,18 @@ curl -X POST https://api.makeit3d.io/generate/upscale \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "upscale-stability-001",
     "provider": "stability",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "model": "fast",
     "output_format": "png"
   }'
+```
+
+**Response:**
+```json
+{
+  "task_id": "upscale-1750625640-y5z6a7b8"
+}
 ```
 
 #### Recraft AI
@@ -301,7 +337,6 @@ curl -X POST https://api.makeit3d.io/generate/upscale \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "upscale-recraft-001",
     "provider": "recraft",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "model": "crisp",
@@ -316,12 +351,18 @@ curl -X POST https://api.makeit3d.io/generate/downscale \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "downscale-001",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "max_size_mb": 0.5,
     "aspect_ratio_mode": "original",
     "output_format": "original"
   }'
+```
+
+**Response:**
+```json
+{
+  "task_id": "downscale-1750625645-c9d0e1f2"
+}
 ```
 
 #### Downscale with Square Padding
@@ -330,7 +371,6 @@ curl -X POST https://api.makeit3d.io/generate/downscale \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "downscale-square-001",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "max_size_mb": 1.0,
     "aspect_ratio_mode": "square",
@@ -344,7 +384,6 @@ curl -X POST https://api.makeit3d.io/generate/downscale \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "downscale-convert-001",
     "input_image_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg",
     "max_size_mb": 0.2,
     "aspect_ratio_mode": "original",
@@ -361,7 +400,6 @@ curl -X POST https://api.makeit3d.io/generate/text-to-model \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "text-to-model-001",
     "provider": "tripo",
     "prompt": "A violet colored cartoon flying elephant with big flapping ears",
     "style": "cartoon",
@@ -374,6 +412,13 @@ curl -X POST https://api.makeit3d.io/generate/text-to-model \
   }'
 ```
 
+**Response:**
+```json
+{
+  "task_id": "text-to-model-1750625650-g3h4i5j6"
+}
+```
+
 ### 2. Image-to-Model
 
 #### Tripo AI (Multi-view)
@@ -382,7 +427,6 @@ curl -X POST https://api.makeit3d.io/generate/image-to-model \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "image-to-model-tripo-001",
     "provider": "tripo",
     "input_image_asset_urls": [
       "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/front.jpg",
@@ -400,13 +444,19 @@ curl -X POST https://api.makeit3d.io/generate/image-to-model \
   }'
 ```
 
+**Response:**
+```json
+{
+  "task_id": "image-to-model-1750625655-k7l8m9n0"
+}
+```
+
 #### Stability AI (Single image)
 ```bash
 curl -X POST https://api.makeit3d.io/generate/image-to-model \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "image-to-model-stability-001",
     "provider": "stability",
     "input_image_asset_urls": [
       "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg"
@@ -428,7 +478,6 @@ curl -X POST https://api.makeit3d.io/generate/refine-model \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "refine-model-001",
     "provider": "tripo",
     "input_model_asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-models/draft_model.glb",
     "prompt": "Make it more detailed and realistic with better textures",
@@ -442,44 +491,58 @@ curl -X POST https://api.makeit3d.io/generate/refine-model \
   }'
 ```
 
+**Response:**
+```json
+{
+  "task_id": "refine-model-1750625700-o1p2q3r4"
+}
+```
+
 ## 📊 Task Status Polling
 
 ### Check Task Status
 
-#### For Image Generation Tasks
+All task status requests use the same endpoint with auto-detection:
+
 ```bash
-# OpenAI tasks
-curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=openai"
-
-# Stability AI tasks
-curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=stability"
-
-# Recraft AI tasks
-curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=recraft"
-
-# Flux AI tasks
-curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=flux"
-
-# Upscale tasks (all providers)
-curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=openai"
-
-# Downscale tasks (image processing)
-curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=openai"
+# Check status using server-generated task ID (auto-detects service type)
+curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/remove-bg-1750625625-m3n4o5p6/status"
 ```
 
-#### For 3D Model Generation Tasks
-```bash
-# Tripo AI tasks
-curl -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/your-celery-task-id/status?service=tripoai"
-```
+### Example Status Responses
 
-### Example Status Response
+#### Pending
 ```json
 {
-  "task_id": "celery-task-id-12345",
+  "task_id": "remove-bg-1750625625-m3n4o5p6",
+  "status": "pending"
+}
+```
+
+#### Processing
+```json
+{
+  "task_id": "remove-bg-1750625625-m3n4o5p6",
+  "status": "processing",
+  "progress": 75
+}
+```
+
+#### Complete
+```json
+{
+  "task_id": "remove-bg-1750625625-m3n4o5p6",
   "status": "complete",
-  "asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-images/result.png",
-  "progress": 100
+  "asset_url": "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/sign/images/remove-bg-1750625625-m3n4o5p6/result.png?token=..."
+}
+```
+
+#### Failed
+```json
+{
+  "task_id": "remove-bg-1750625625-m3n4o5p6",
+  "status": "failed",
+  "error": "AI service timed out"
 }
 ```
 
@@ -491,7 +554,6 @@ RESPONSE=$(curl -s -X POST https://api.makeit3d.io/generate/text-to-image \
   -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "workflow-example-001",
     "provider": "openai",
     "prompt": "A beautiful sunset over mountains",
     "style": "vivid",
@@ -502,16 +564,16 @@ RESPONSE=$(curl -s -X POST https://api.makeit3d.io/generate/text-to-image \
 echo "Response: $RESPONSE"
 ```
 
-### 2. Extract Celery Task ID
+### 2. Extract Server-Generated Task ID
 ```bash
-CELERY_TASK_ID=$(echo $RESPONSE | jq -r '.celery_task_id')
-echo "Celery Task ID: $CELERY_TASK_ID"
+TASK_ID=$(echo $RESPONSE | jq -r '.task_id')
+echo "Server-Generated Task ID: $TASK_ID"
 ```
 
 ### 3. Poll for Completion
 ```bash
 while true; do
-  STATUS_RESPONSE=$(curl -s -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/$CELERY_TASK_ID/status?service=openai")
+  STATUS_RESPONSE=$(curl -s -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/$TASK_ID/status")
   STATUS=$(echo $STATUS_RESPONSE | jq -r '.status')
   
   echo "Current status: $STATUS"
@@ -538,17 +600,135 @@ if [ "$STATUS" = "complete" ]; then
 fi
 ```
 
+## 🔄 Multi-Step Workflow Example
+
+### Background Removal → Upscale → Downscale Pipeline
+```bash
+#!/bin/bash
+
+# Configuration
+API_KEY="makeit3d_test_sk_dev_001"
+INPUT_IMAGE="https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg"
+
+# Function to poll for completion
+poll_task() {
+  local task_id=$1
+  local max_attempts=60
+  local attempt=0
+  
+  while [ $attempt -lt $max_attempts ]; do
+    response=$(curl -s -H "X-API-Key: $API_KEY" "https://api.makeit3d.io/tasks/$task_id/status")
+    status=$(echo $response | jq -r '.status')
+    
+    echo "[$task_id] Status: $status"
+    
+    if [ "$status" = "complete" ]; then
+      echo $response | jq -r '.asset_url'
+      return 0
+    elif [ "$status" = "failed" ]; then
+      echo "Task failed: $(echo $response | jq -r '.error')"
+      return 1
+    fi
+    
+    sleep 2
+    ((attempt++))
+  done
+  
+  echo "Timeout waiting for task completion"
+  return 1
+}
+
+# Step 1: Remove Background
+echo "🔄 Step 1: Removing background..."
+bg_response=$(curl -s -X POST https://api.makeit3d.io/generate/remove-background \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"provider\": \"stability\",
+    \"input_image_asset_url\": \"$INPUT_IMAGE\",
+    \"output_format\": \"png\"
+  }")
+
+bg_task_id=$(echo $bg_response | jq -r '.task_id')
+echo "✅ Background removal task ID: $bg_task_id"
+
+bg_result_url=$(poll_task $bg_task_id)
+if [ $? -ne 0 ]; then
+  echo "❌ Background removal failed"
+  exit 1
+fi
+echo "✅ Background removed: $bg_result_url"
+
+# Step 2: Upscale
+echo "🔄 Step 2: Upscaling image..."
+upscale_response=$(curl -s -X POST https://api.makeit3d.io/generate/upscale \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"provider\": \"stability\",
+    \"input_image_asset_url\": \"$bg_result_url\",
+    \"model\": \"fast\",
+    \"output_format\": \"png\"
+  }")
+
+upscale_task_id=$(echo $upscale_response | jq -r '.task_id')
+echo "✅ Upscale task ID: $upscale_task_id"
+
+upscale_result_url=$(poll_task $upscale_task_id)
+if [ $? -ne 0 ]; then
+  echo "❌ Upscaling failed"
+  exit 1
+fi
+echo "✅ Image upscaled: $upscale_result_url"
+
+# Step 3: Downscale for optimization
+echo "🔄 Step 3: Optimizing file size..."
+downscale_response=$(curl -s -X POST https://api.makeit3d.io/generate/downscale \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"input_image_asset_url\": \"$upscale_result_url\",
+    \"max_size_mb\": 0.5,
+    \"aspect_ratio_mode\": \"original\",
+    \"output_format\": \"png\"
+  }")
+
+downscale_task_id=$(echo $downscale_response | jq -r '.task_id')
+echo "✅ Downscale task ID: $downscale_task_id"
+
+final_result_url=$(poll_task $downscale_task_id)
+if [ $? -ne 0 ]; then
+  echo "❌ Downscaling failed"
+  exit 1
+fi
+echo "✅ File optimized: $final_result_url"
+
+# Summary
+echo ""
+echo "🎉 Workflow Complete!"
+echo "📥 Original: $INPUT_IMAGE"
+echo "📥 Background Removed: $bg_result_url"
+echo "📥 Upscaled: $upscale_result_url"
+echo "📥 Final Optimized: $final_result_url"
+```
+
 ## 📝 Important Notes
 
-### Task IDs
-- **Always use unique `task_id`** values for each request
-- Task IDs should be client-generated and meaningful
-- Format suggestion: `{operation}-{provider}-{timestamp}` or `{operation}-{provider}-{uuid}`
+### Server-Managed Task IDs
+- **Never provide `task_id`** in request bodies
+- **Always use server-generated task IDs** for status polling
+- Task ID format: `{operation}-{timestamp}-{uuid8}`
+- Examples: `remove-bg-1750625625-m3n4o5p6`, `upscale-1750625640-y5z6a7b8`
 
 ### Input Asset URLs
 - Must be valid Supabase storage URLs
 - Images should be accessible (public or with proper permissions)
 - Supported formats: JPG, PNG, WebP for images; GLB, OBJ for 3D models
+
+### Auto-Detection Features
+- **Service Type**: Status endpoint auto-detects service type (no `service` parameter needed)
+- **Provider Capabilities**: API validates provider support for each endpoint
+- **Error Handling**: Clear error messages for unsupported provider/endpoint combinations
 
 ### Rate Limiting
 - Different endpoints have different rate limits
@@ -574,10 +754,6 @@ fi
 | Image-to-Model | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
 | Refine Model | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
 
-### Upscale vs Downscale
-- **Upscale**: AI-powered enhancement using Stability AI or Recraft, increases image resolution and quality
-- **Downscale**: Basic image processing using Pillow, reduces file size to meet size constraints
-
 ### Error Handling
 - Always check the HTTP status code
 - Parse JSON responses for error details
@@ -592,6 +768,6 @@ fi
 
 ---
 
-**API Version**: 1.0.0  
-**Last Updated**: June 2025  
+**API Version**: 3.0.0  
+**Last Updated**: January 2025  
 **Base URL**: https://api.makeit3d.io

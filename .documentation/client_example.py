@@ -28,8 +28,7 @@ def register_api_key(verification_secret, tenant_type, tenant_identifier, tenant
     }
     
     response = requests.post(
-        # 'https://api.makeit3d.io/auth/register',  # Remote API - use this once fixed
-        'http://localhost:8000/auth/register',
+        'https://api.makeit3d.io/auth/register',  # Real production API
         headers={'Content-Type': 'application/json'},
         json=registration_data
     )
@@ -53,8 +52,7 @@ def remove_background(image_url, api_key, provider="stability"):
     """
     # 1. Submit job - BFF will generate the task ID
     response = requests.post(
-        # 'https://api.makeit3d.io/generate/remove-background',  # Remote API - use this once fixed
-        'http://localhost:8000/generate/remove-background',
+        'https://api.makeit3d.io/generate/remove-background',  # Real production API
         headers={
             'X-API-Key': api_key,
             'Content-Type': 'application/json'
@@ -77,8 +75,7 @@ def remove_background(image_url, api_key, provider="stability"):
     # 3. Poll using the BFF-provided task ID
     while True:
         status_response = requests.get(
-            # f'https://api.makeit3d.io/tasks/{task_id}/status',  # Remote API - use this once fixed
-            f'http://localhost:8000/tasks/{task_id}/status',
+            f'https://api.makeit3d.io/tasks/{task_id}/status',  # Real production API
             headers={'X-API-Key': api_key}
         )
         
@@ -131,8 +128,7 @@ def upscale_image(image_url, api_key, provider="stability"):
         }
     
     response = requests.post(
-        # 'https://api.makeit3d.io/generate/upscale',  # Remote API - use this once fixed
-        'http://localhost:8000/generate/upscale',
+        'https://api.makeit3d.io/generate/upscale',  # Real production API
         headers={
             'X-API-Key': api_key,
             'Content-Type': 'application/json'
@@ -152,8 +148,7 @@ def upscale_image(image_url, api_key, provider="stability"):
     # 3. Poll using the BFF-provided task ID
     while True:
         status_response = requests.get(
-            # f'https://api.makeit3d.io/tasks/{task_id}/status',  # Remote API - use this once fixed
-            f'http://localhost:8000/tasks/{task_id}/status',
+            f'https://api.makeit3d.io/tasks/{task_id}/status',  # Real production API
             headers={'X-API-Key': api_key}
         )
         
@@ -196,8 +191,7 @@ def downscale_image(image_url, api_key, max_size_mb=0.5, aspect_ratio_mode="orig
     }
     
     response = requests.post(
-        # 'https://api.makeit3d.io/generate/downscale',  # Remote API - use this once fixed
-        'http://localhost:8000/generate/downscale',
+        'https://api.makeit3d.io/generate/downscale',  # Real production API
         headers={
             'X-API-Key': api_key,
             'Content-Type': 'application/json'
@@ -217,8 +211,7 @@ def downscale_image(image_url, api_key, max_size_mb=0.5, aspect_ratio_mode="orig
     # 3. Poll using the BFF-provided task ID
     while True:
         status_response = requests.get(
-            # f'https://api.makeit3d.io/tasks/{task_id}/status',  # Remote API - use this once fixed
-            f'http://localhost:8000/tasks/{task_id}/status',
+            f'https://api.makeit3d.io/tasks/{task_id}/status',  # Real production API
             headers={'X-API-Key': api_key}
         )
         
@@ -241,10 +234,10 @@ def downscale_image(image_url, api_key, max_size_mb=0.5, aspect_ratio_mode="orig
 
 # Example usage
 if __name__ == "__main__":
-    # Option 1: Use test API key for development
-    TEST_API_KEY = "makeit3d_test_sk_dev_001"
+    # Use the test API key from Supabase
+    TEST_API_KEY = "makeit3d_test_sk_dev_001"  # Real test key from production DB
     
-    # Option 2: Register for production API key (uncomment to use)
+    # Option: Register for production API key (uncomment to use)
     """
     try:
         registration_response = register_api_key(
@@ -272,46 +265,46 @@ if __name__ == "__main__":
         api_key = TEST_API_KEY
     """
     
-    # For this example, use the test API key
+    # Use test API key for this example
     api_key = TEST_API_KEY
     
-    # Test all image operations sequentially
+    # Test image URL (publicly accessible)
+    test_image_url = "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg"
+    
+    print("🔄 Starting complete image processing workflow...")
+    print(f"📸 Original image: {test_image_url}")
+    print()
+    
     try:
-        # Use a valid Supabase storage URL from the test files
-        original_image_url = "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg"
-        
-        print("🔄 Starting complete image processing workflow...")
-        print(f"📸 Original image: {original_image_url}")
-        print()
-        
         # Step 1: Remove background
         print("1️⃣ REMOVE BACKGROUND")
         print("🚀 Starting background removal...")
-        bg_removed_url = remove_background(original_image_url, api_key, "stability")
+        bg_removed_url = remove_background(test_image_url, api_key, provider="stability")
         print(f"✅ Background removed! URL: {bg_removed_url}")
         print()
         
-        # Step 2: Upscale the background-removed image
+        # Step 2: Upscale the result
         print("2️⃣ UPSCALE IMAGE")
         print("🚀 Starting upscaling...")
-        upscaled_url = upscale_image(bg_removed_url, api_key, "stability")
+        upscaled_url = upscale_image(bg_removed_url, api_key, provider="stability")
         print(f"✅ Image upscaled! URL: {upscaled_url}")
         print()
         
-        # Step 3: Downscale the upscaled image to reduce file size
+        # Step 3: Downscale for optimization
         print("3️⃣ DOWNSCALE IMAGE")
         print("🚀 Starting downscaling...")
         final_url = downscale_image(upscaled_url, api_key, max_size_mb=0.8, aspect_ratio_mode="original", output_format="png")
         print(f"✅ Image downscaled! URL: {final_url}")
         print()
         
+        # Summary
         print("🎉 WORKFLOW COMPLETE!")
         print("📋 Processing Summary:")
-        print(f"   • Original image: {original_image_url}")
+        print(f"   • Original image: {test_image_url}")
         print(f"   • Background removed: {bg_removed_url}")
         print(f"   • Upscaled: {upscaled_url}")
         print(f"   • Final optimized: {final_url}")
         print("📥 Download any of the processed images before URLs expire (1 hour for private buckets)")
         
     except Exception as e:
-        print(f"❌ Error in workflow: {e}")
+        print(f"❌ Error during processing: {e}")

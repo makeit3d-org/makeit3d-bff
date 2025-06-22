@@ -20,19 +20,18 @@ router = APIRouter()
 @router.get("/{task_id}/status", response_model=TaskStatusResponse)
 async def get_task_status_endpoint(
     task_id: str, 
-    service: Optional[str] = Query(None, description="Optional AI service hint - will be auto-detected if not provided"),
     tenant: Optional[TenantContext] = Depends(get_optional_tenant)
 ):
     """
     Polls the status of an asynchronous task (Celery task).
     Supports all providers: OpenAI, Stability, Recraft, Flux, TripoAI, and custom processing (downscale).
     
-    The service is auto-detected from the Celery task name/result, but can be optionally specified.
+    The service type is automatically detected from the Celery task name/result.
     
     Authentication is optional - if provided, adds tenant context to logs.
     """
     tenant_info = f" from tenant: {tenant.tenant_id}" if tenant else " (no auth)"
-    logger.info(f"Received status request for task ID: {task_id}, service hint: {service}{tenant_info}")
+    logger.info(f"Received status request for task ID: {task_id}, service hint: None{tenant_info}")
 
     celery_task_result = celery_app.AsyncResult(task_id)
 
@@ -60,33 +59,32 @@ async def get_task_status_endpoint(
 
         # Auto-detect service type from task name or result payload
         task_name = getattr(celery_task_result.task, 'name', None) if hasattr(celery_task_result, 'task') else None
-        detected_service = service  # Use provided service hint if available
+        detected_service = None
         
-        if not detected_service:
-            # Auto-detect from task name
-            if task_name:
-                if 'tripo' in task_name.lower():
-                    detected_service = 'tripoai'
-                elif 'openai' in task_name.lower():
-                    detected_service = 'openai'
-                elif 'stability' in task_name.lower():
-                    detected_service = 'stability'
-                elif 'recraft' in task_name.lower():
-                    detected_service = 'recraft'
-                elif 'flux' in task_name.lower():
-                    detected_service = 'flux'
-                elif 'downscale' in task_name.lower():
-                    detected_service = 'downscale'
-            
-            # Auto-detect from result payload if task name detection failed
-            if not detected_service and celery_payload:
-                if celery_payload.get('tripo_task_id'):
-                    detected_service = 'tripoai'
-                elif celery_payload.get('provider'):
-                    detected_service = celery_payload.get('provider')
-                else:
-                    # Default fallback for synchronous tasks
-                    detected_service = 'synchronous'
+        # Auto-detect from task name
+        if task_name:
+            if 'tripo' in task_name.lower():
+                detected_service = 'tripoai'
+            elif 'openai' in task_name.lower():
+                detected_service = 'openai'
+            elif 'stability' in task_name.lower():
+                detected_service = 'stability'
+            elif 'recraft' in task_name.lower():
+                detected_service = 'recraft'
+            elif 'flux' in task_name.lower():
+                detected_service = 'flux'
+            elif 'downscale' in task_name.lower():
+                detected_service = 'downscale'
+        
+        # Auto-detect from result payload if task name detection failed
+        if not detected_service and celery_payload:
+            if celery_payload.get('tripo_task_id'):
+                detected_service = 'tripoai'
+            elif celery_payload.get('provider'):
+                detected_service = celery_payload.get('provider')
+            else:
+                # Default fallback for synchronous tasks
+                detected_service = 'synchronous'
         
         logger.info(f"Task {task_id}: detected service '{detected_service}' (task_name: {task_name})")
 
