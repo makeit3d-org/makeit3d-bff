@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import List, Optional, Dict, Any, Literal, Union
 from typing_extensions import Annotated # Use typing_extensions for Annotated for broader compatibility
+from enum import Enum
 
 # Schemas for generation endpoints
 
@@ -8,31 +9,31 @@ class SearchAndRecolorRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     """Request schema for search and recolor generation (Stability only)."""
-    task_id: str  # Client-generated main task ID
-    provider: Literal["stability"] = "stability"  # Only Stability supports search-and-recolor
-    input_image_asset_url: str  # Supabase URL to the input image
-    prompt: str  # Description of how to recolor the object
-    select_prompt: str  # What object to search for and recolor in the image
+    provider: str = Field(..., description="AI provider ('stability')")
+    input_image_asset_url: str = Field(..., description="URL of the input image")
+    prompt: str = Field(..., description="Search and recolor prompt")
+    style_preset: Optional[str] = Field("photographic", description="Style preset")
+    select_prompt: Optional[str] = Field(None, description="Search prompt for object selection")
+    negative_prompt: Optional[str] = Field(None, description="Negative prompt")
+    output_format: Optional[str] = Field("png", description="Output image format")
     
     # Stability parameters
-    negative_prompt: Optional[str] = None  # What to avoid in the recoloring
     grow_mask: Optional[int] = Field(default=3, ge=0, le=20)  # Grows mask edges for smoother transitions
     seed: Optional[int] = 0  # Seed for reproducibility, 0 for random
-    output_format: Optional[str] = "png"  # Output format: png, jpeg, webp
-    style_preset: Optional[str] = None  # Optional style preset
 
 class ImageToImageRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     """Request schema for image-to-image generation (multi-provider)."""
-    task_id: str # Client-generated main task ID
-    provider: Literal["openai", "stability", "recraft", "flux"] # AI provider to use
-    input_image_asset_url: str # Supabase URL to the input image
-    prompt: str
+    provider: str = Field(..., description="AI provider (e.g., 'openai', 'stability', 'recraft', 'flux')")
+    input_image_asset_url: str = Field(..., description="URL of the input image")
+    prompt: str = Field(..., description="Text prompt for generation")
+    style: Optional[str] = Field(None, description="Style preset for the generated image")
+    model: Optional[str] = Field(None, description="Model variant")
+    num_outputs: Optional[int] = Field(1, description="Number of outputs to generate")
+    quality: Optional[str] = Field(None, description="Quality level")
     
     # OpenAI parameters
-    style: Optional[str] = None # OpenAI style
-    n: Optional[int] = Field(default=1, ge=1, le=10) # Number of images, default 1
     background: Optional[str] = None # OpenAI background transparency
     
     # Stability parameters
@@ -64,15 +65,18 @@ class TextToImageRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     """Request schema for text-to-image generation (multi-provider)."""
-    task_id: str # Client-generated main task ID
-    provider: Literal["openai", "stability", "recraft", "flux"] # AI provider to use
-    prompt: str
+    provider: str = Field(..., description="AI provider (e.g., 'openai', 'stability', 'recraft', 'flux')")
+    prompt: str = Field(..., description="Text prompt for generation")
+    style: Optional[str] = Field(None, description="Style preset for the generated image")
+    model: Optional[str] = Field(None, description="Model variant")
+    width: Optional[int] = Field(None, description="Width of the generated image")
+    height: Optional[int] = Field(None, description="Height of the generated image")
+    num_outputs: Optional[int] = Field(1, description="Number of outputs to generate")
+    quality: Optional[str] = Field(None, description="Quality level")
     
     # OpenAI parameters
-    style: Optional[str] = None # OpenAI style
     n: Optional[int] = Field(default=1, ge=1, le=10) # Number of images
     size: Optional[str] = "1024x1024" # OpenAI size
-    quality: Optional[str] = "standard" # OpenAI quality
     
     # Stability parameters
     style_preset: Optional[str] = None # Stability style preset
@@ -88,8 +92,6 @@ class TextToImageRequest(BaseModel):
     style_id: Optional[str] = None # Recraft custom style ID
     
     # Flux parameters (for text-to-image)
-    width: Optional[int] = 1024 # Flux image width
-    height: Optional[int] = 1024 # Flux image height
     safety_tolerance: Optional[int] = Field(default=2, ge=0, le=6) # Flux safety tolerance
     prompt_upsampling: Optional[bool] = False # Flux prompt upsampling
 
@@ -97,9 +99,10 @@ class TextToModelRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     """Request schema for text-to-model generation (Tripo only)."""
-    task_id: str # Client-generated main task ID
-    provider: Literal["tripo"] # Only Tripo supports text-to-model
-    prompt: str
+    provider: str = Field(..., description="AI provider ('tripoai')")
+    prompt: str = Field(..., description="Text prompt for model generation")
+    model_type: Optional[str] = Field(None, description="Type of model to generate")
+    quality: Optional[str] = Field(None, description="Quality level")
     
     # Tripo parameters
     style: Optional[str] = None
@@ -119,12 +122,13 @@ class ImageToModelRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     """Request schema for image-to-model generation (multi-provider)."""
-    task_id: str # Client-generated main task ID
-    provider: Literal["tripo", "stability"] # AI provider to use
-    input_image_asset_urls: List[str]  # List of Supabase URLs to input images
+    provider: str = Field(..., description="AI provider ('tripoai')")
+    input_image_asset_url: str = Field(..., description="URL of the input image")
+    prompt: Optional[str] = Field(None, description="Optional text prompt")
+    model_type: Optional[str] = Field(None, description="Type of model to generate")
+    quality: Optional[str] = Field(None, description="Quality level")
     
     # Tripo parameters
-    prompt: Optional[str] = None
     style: Optional[str] = None
     texture: bool = True
     pbr: Optional[bool] = None
@@ -145,24 +149,21 @@ class ImageToModelRequest(BaseModel):
 
 class SketchToImageRequest(BaseModel):
     """Request schema for sketch-to-image generation (Stability only)."""
-    task_id: str # Client-generated main task ID
-    input_sketch_asset_url: str # Supabase URL to the input sketch
-    prompt: str
-    
-    # Stability parameters
-    control_strength: Optional[float] = Field(default=0.8, ge=0.0, le=1.0)
-    style_preset: Optional[str] = "3d-model"
-    negative_prompt: Optional[str] = None
-    output_format: Optional[str] = "png"
+    input_sketch_asset_url: str = Field(..., description="URL of the input sketch")
+    prompt: str = Field(..., description="Text prompt for generation")
+    style_preset: Optional[str] = Field("photographic", description="Style preset (e.g., 'photographic', 'digital-art')")
+    control_strength: Optional[float] = Field(0.7, description="Strength of control from sketch")
+    output_format: Optional[str] = Field("png", description="Output image format")
     seed: Optional[int] = 0
 
 class RefineModelRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     """Request schema for model refinement (Tripo only)."""
-    task_id: str # Client-generated main workspace task ID
-    input_model_asset_url: str # Full Supabase URL to the 3D model that needs to be refined
-    prompt: Optional[str] = None # Text prompt to guide the refinement process
+    provider: str = Field(..., description="AI provider ('tripoai')")
+    input_model_asset_url: str = Field(..., description="URL of the input 3D model")
+    prompt: Optional[str] = Field(None, description="Optional refinement prompt")
+    quality: Optional[str] = Field(None, description="Quality level")
     draft_model_task_id: Optional[str] = None # Optional Tripo task ID if input model is from previous Tripo task
     texture: bool = True # Whether to generate/regenerate textures for the model
     pbr: Optional[bool] = None # Enable PBR texturing
@@ -173,47 +174,41 @@ class RefineModelRequest(BaseModel):
 
 class RemoveBackgroundRequest(BaseModel):
     """Request schema for background removal (multi-provider)."""
-    task_id: str # Client-generated main task ID
-    provider: Literal["stability", "recraft"] # AI provider to use
-    input_image_asset_url: str # Supabase URL to the input image
+    provider: str = Field(..., description="AI provider (e.g., 'stability', 'recraft')")
+    input_image_asset_url: str = Field(..., description="URL of the input image")
+    output_format: Optional[str] = Field("png", description="Output image format")
     
-    # Stability parameters
-    output_format: Optional[str] = "png" # Stability output format
-    
-    # Recraft parameters
-    response_format: Optional[str] = "url" # Recraft response format
+    @validator('provider')
+    def validate_provider(cls, v):
+        allowed_providers = ['stability', 'recraft']
+        if v not in allowed_providers:
+            raise ValueError(f'Provider must be one of: {allowed_providers}')
+        return v
 
 class UpscaleRequest(BaseModel):
     """Request schema for image upscaling (multi-provider)."""
-    task_id: str # Client-generated main task ID
-    provider: Literal["stability", "recraft"] # AI provider to use
-    input_image_asset_url: str # Supabase URL to the input image
-    
-    # Shared parameters
-    model: Optional[str] = None # Model to use: Stability: "fast", Recraft: "crisp" (default and only option)
-    
-    # Stability parameters
-    output_format: Optional[str] = "png" # Stability output format
-    
-    # Recraft parameters
-    response_format: Optional[str] = "url" # Recraft response format
-    
-    def __init__(self, **data):
-        super().__init__(**data)
-        # Set default model based on provider
-        if self.model is None:
-            if self.provider == "stability":
-                self.model = "fast"
-            elif self.provider == "recraft":
-                self.model = "crisp"
+    provider: str = Field(..., description="AI provider (e.g., 'stability', 'recraft')")
+    input_image_asset_url: str = Field(..., description="URL of the input image")
+    model: Optional[str] = Field(None, description="Upscaling model variant")
+    prompt: Optional[str] = Field(None, description="Optional enhancement prompt")
+    creativity: Optional[float] = Field(None, description="Creativity level (0.0-1.0)")
+    resemblance: Optional[float] = Field(None, description="Resemblance to original (0.0-1.0)")
+    output_format: Optional[str] = Field("png", description="Output image format")
+
+    @validator('provider')
+    def validate_provider(cls, v):
+        allowed_providers = ['stability', 'recraft']
+        if v not in allowed_providers:
+            raise ValueError(f'Provider must be one of: {allowed_providers}')
+        return v
 
 class DownscaleRequest(BaseModel):
     """Request schema for image downscaling (basic image processing)."""
-    task_id: str # Client-generated main task ID
-    input_image_asset_url: str # Supabase URL to the input image
-    max_size_mb: float = Field(ge=0.1, le=20.0) # Target maximum file size in megabytes
-    aspect_ratio_mode: Literal["original", "square"] # Aspect ratio handling
-    output_format: Literal["original", "jpeg", "png"] = "original" # Output format conversion
+    input_image_asset_url: str = Field(..., description="URL of the input image")
+    max_size_mb: float = Field(..., description="Target maximum file size in megabytes")
+    aspect_ratio_mode: Optional[str] = Field("original", description="Aspect ratio handling")
+    output_format: Optional[str] = Field("jpeg", description="Output format")
+    quality: Optional[int] = Field(85, description="JPEG quality (1-100)")
     
     @field_validator('max_size_mb')
     def validate_max_size_mb(cls, value: float):
@@ -223,16 +218,16 @@ class DownscaleRequest(BaseModel):
 
 class ImageInpaintRequest(BaseModel):
     """Request schema for image inpainting (Recraft only)."""
-    task_id: str # Client-generated main task ID
-    provider: str # Must be "recraft" for this endpoint
-    input_image_asset_url: str # Supabase URL to the input image
-    input_mask_asset_url: str # Supabase URL to the mask image
-    prompt: str
+    provider: str = Field(..., description="AI provider ('recraft')")
+    input_image_asset_url: str = Field(..., description="URL of the input image")
+    input_mask_asset_url: str = Field(..., description="URL of the mask image")
+    prompt: str = Field(..., description="Inpainting prompt")
+    style: Optional[str] = Field(None, description="Style preset")
+    num_outputs: Optional[int] = Field(1, description="Number of outputs")
     
     # Recraft parameters
     negative_prompt: Optional[str] = None
     n: Optional[int] = Field(default=1, ge=1, le=6)
-    style: Optional[str] = "realistic_image"
     substyle: Optional[str] = None
     model: Optional[str] = "recraftv3"
     response_format: Optional[str] = "url"

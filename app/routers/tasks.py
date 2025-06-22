@@ -20,20 +20,19 @@ router = APIRouter()
 @router.get("/{task_id}/status", response_model=TaskStatusResponse)
 async def get_task_status_endpoint(
     task_id: str, 
-    service: str = Query(..., description="The AI service used for the task: 'openai' or 'tripoai'"),
+    service: Optional[str] = Query(None, description="Optional AI service hint - will be auto-detected if not provided"),
     tenant: Optional[TenantContext] = Depends(get_optional_tenant)
 ):
     """
     Polls the status of an asynchronous task (Celery task).
-    For OpenAI, it primarily checks the Celery task result which contains direct Supabase URLs.
-    For TripoAI, it checks the Celery task result for the Tripo AI task ID, then polls Tripo AI.
-    If Tripo AI task is complete, it downloads the asset, uploads to app's Supabase,
-    updates the DB record, and returns the final Supabase URL.
+    Supports all providers: OpenAI, Stability, Recraft, Flux, TripoAI, and custom processing (downscale).
+    
+    The service is auto-detected from the Celery task name/result, but can be optionally specified.
     
     Authentication is optional - if provided, adds tenant context to logs.
     """
     tenant_info = f" from tenant: {tenant.tenant_id}" if tenant else " (no auth)"
-    logger.info(f"Received status request for task ID: {task_id}, service: {service}{tenant_info}")
+    logger.info(f"Received status request for task ID: {task_id}, service hint: {service}{tenant_info}")
 
     celery_task_result = celery_app.AsyncResult(task_id)
 
@@ -56,57 +55,46 @@ async def get_task_status_endpoint(
         celery_payload = celery_task_result.result
         
         if not celery_payload or not isinstance(celery_payload, dict):
-            logger.error(f"Celery task {task_id} (service: {service}) complete but returned an invalid payload: {celery_payload}")
+            logger.error(f"Celery task {task_id} complete but returned an invalid payload: {celery_payload}")
             return TaskStatusResponse(task_id=task_id, status="failed", error="Celery task result payload invalid.", asset_url=None)
 
+        # Auto-detect service type from task name or result payload
+        task_name = getattr(celery_task_result.task, 'name', None) if hasattr(celery_task_result, 'task') else None
+        detected_service = service  # Use provided service hint if available
+        
+        if not detected_service:
+            # Auto-detect from task name
+            if task_name:
+                if 'tripo' in task_name.lower():
+                    detected_service = 'tripoai'
+                elif 'openai' in task_name.lower():
+                    detected_service = 'openai'
+                elif 'stability' in task_name.lower():
+                    detected_service = 'stability'
+                elif 'recraft' in task_name.lower():
+                    detected_service = 'recraft'
+                elif 'flux' in task_name.lower():
+                    detected_service = 'flux'
+                elif 'downscale' in task_name.lower():
+                    detected_service = 'downscale'
+            
+            # Auto-detect from result payload if task name detection failed
+            if not detected_service and celery_payload:
+                if celery_payload.get('tripo_task_id'):
+                    detected_service = 'tripoai'
+                elif celery_payload.get('provider'):
+                    detected_service = celery_payload.get('provider')
+                else:
+                    # Default fallback for synchronous tasks
+                    detected_service = 'synchronous'
+        
+        logger.info(f"Task {task_id}: detected service '{detected_service}' (task_name: {task_name})")
+
         db_record_id = celery_payload.get("db_record_id")
-        # client_task_id is the main ID from the client, used for Supabase paths.
-        # For OpenAI, it was part of the original request_data_dict.
-        # For Tripo, the Celery task should also include it in its return payload.
         client_task_id = celery_payload.get("client_task_id") 
 
-        if service == "openai":
-            openai_task_reported_status = celery_payload.get("status") # Status reported by the OpenAI Celery task
-            
-            if openai_task_reported_status == "complete":
-                try:
-                    if db_record_id is None:
-                         logger.error(f"OpenAI Celery task {task_id} result missing db_record_id.")
-                         raise HTTPException(status_code=500, detail="OpenAI task result incomplete for DB lookup.")
-
-                    # Fetch the record from images using the correct supabase_handler function
-                    image_record = await supabase_handler.get_image_record_by_id(image_id=db_record_id)
-                    
-                    if not image_record:
-                         logger.error(f"Failed to fetch image record for ID {db_record_id} (Celery task {task_id}).")
-                         return TaskStatusResponse(task_id=task_id, status="failed", error=f"Image record {db_record_id} not found.", asset_url=None)
-
-                    final_asset_url = image_record.get("asset_url")
-                    if not final_asset_url:
-                        # Fallback to first URL from Celery result if main record URL is missing (e.g. n > 1 images)
-                        if celery_payload.get("image_urls") and len(celery_payload["image_urls"]) > 0:
-                            final_asset_url = celery_payload["image_urls"][0]
-                            logger.warning(f"OpenAI Celery task {task_id} (DB record {db_record_id}): asset_url missing in DB, using first from Celery payload: {final_asset_url}")
-                        else:
-                             logger.error(f"OpenAI Celery task {task_id} (DB record {db_record_id}) complete but no asset URL found in DB or Celery payload.")
-                             return TaskStatusResponse(task_id=task_id, status="failed", error="No asset URL found.", asset_url=None)
-                    
-                    logger.info(f"OpenAI Celery task {task_id} (DB record {db_record_id}) complete. Asset URL: {final_asset_url}")
-                    return TaskStatusResponse(task_id=task_id, status="complete", asset_url=final_asset_url)
-
-                except Exception as e_db_fetch:
-                    logger.error(f"Error fetching/processing OpenAI image record {db_record_id} for Celery task {task_id}: {e_db_fetch}", exc_info=True)
-                    return TaskStatusResponse(task_id=task_id, status="failed", error=str(e_db_fetch), asset_url=None)
-            
-            elif openai_task_reported_status and "failed" in openai_task_reported_status:
-                logger.error(f"OpenAI Celery task {task_id} (DB record {db_record_id}) reported failure: {openai_task_reported_status}. Payload: {celery_payload}")
-                return TaskStatusResponse(task_id=task_id, status="failed", error=f"OpenAI task failed: {openai_task_reported_status}", asset_url=None)
-            else: # Task still processing as per its own status, or unknown status
-                current_openai_status = "processing" if openai_task_reported_status else "processing"
-                logger.info(f"OpenAI Celery task {task_id} (DB record {db_record_id}) current status from task payload: {current_openai_status}")
-                return TaskStatusResponse(task_id=task_id, status=current_openai_status, asset_url=None)
-
-        elif service == "tripoai":
+        if detected_service == "tripoai":
+            # Handle TripoAI (asynchronous polling required)
             tripo_provider_task_id = celery_payload.get("tripo_task_id")
             
             if not db_record_id or not tripo_provider_task_id or not client_task_id:
@@ -196,17 +184,123 @@ async def get_task_status_endpoint(
                 except Exception as e_db_upd: logger.error(f"Failed to update model {db_record_id} status after poll error: {e_db_upd}")
                 return TaskStatusResponse(task_id=task_id, status="failed", error=error_info)
         
-        else: 
-            logger.error(f"Unknown service for task ID {task_id}: {service}")
-            raise HTTPException(status_code=400, detail=f"Invalid service: {service}. Must be 'openai' or 'tripoai'.")
+        elif detected_service in ["openai", "stability", "recraft", "flux", "downscale", "synchronous"]:
+            # Handle synchronous providers (OpenAI, Stability, Recraft, Flux, Downscale)
+            # These complete within the Celery task and return asset URLs directly
+            
+            task_reported_status = celery_payload.get("status", "complete")  # Default to complete for successful Celery tasks
+            
+            if task_reported_status == "complete":
+                try:
+                    if db_record_id is None:
+                         logger.error(f"{detected_service.capitalize()} Celery task {task_id} result missing db_record_id.")
+                         raise HTTPException(status_code=500, detail=f"{detected_service.capitalize()} task result incomplete for DB lookup.")
 
+                    # Determine if this is an image or model record
+                    is_model_task = detected_service == "stability" and celery_payload.get("operation_type") == "image_to_model"
+                    
+                    if is_model_task:
+                        # Fetch model record
+                        from supabase_handler import supabase_client
+                        from config import settings
+                        
+                        def get_model_record():
+                            response = supabase_client.table(settings.models_table_name).select("*").eq("id", db_record_id).execute()
+                            return response.data[0] if response.data else None
+                        
+                        record = await run_in_threadpool(get_model_record)
+                        record_type = "model"
+                    else:
+                        # Fetch image record
+                        record = await supabase_handler.get_image_record_by_id(image_id=db_record_id)
+                        record_type = "image"
+                    
+                    if not record:
+                         logger.error(f"Failed to fetch {record_type} record for ID {db_record_id} (Celery task {task_id}).")
+                         return TaskStatusResponse(task_id=task_id, status="failed", error=f"{record_type.capitalize()} record {db_record_id} not found.", asset_url=None)
+
+                    final_asset_url = record.get("asset_url")
+                    if not final_asset_url:
+                        # Fallback to URLs from Celery result if main record URL is missing
+                        url_keys = ["image_urls", "asset_urls", "model_urls", "asset_url"]
+                        for key in url_keys:
+                            if celery_payload.get(key):
+                                if isinstance(celery_payload[key], list) and len(celery_payload[key]) > 0:
+                                    final_asset_url = celery_payload[key][0]
+                                    break
+                                elif isinstance(celery_payload[key], str):
+                                    final_asset_url = celery_payload[key]
+                                    break
+                        
+                        if not final_asset_url:
+                             logger.error(f"{detected_service.capitalize()} Celery task {task_id} (DB record {db_record_id}) complete but no asset URL found in DB or Celery payload.")
+                             return TaskStatusResponse(task_id=task_id, status="failed", error="No asset URL found.", asset_url=None)
+                        else:
+                            logger.warning(f"{detected_service.capitalize()} Celery task {task_id} (DB record {db_record_id}): asset_url missing in DB, using from Celery payload: {final_asset_url}")
+                    
+                    logger.info(f"{detected_service.capitalize()} Celery task {task_id} (DB record {db_record_id}) complete. Asset URL: {final_asset_url}")
+                    return TaskStatusResponse(task_id=task_id, status="complete", asset_url=final_asset_url, progress=100)
+
+                except Exception as e_db_fetch:
+                    logger.error(f"Error fetching/processing {detected_service} record {db_record_id} for Celery task {task_id}: {e_db_fetch}", exc_info=True)
+                    return TaskStatusResponse(task_id=task_id, status="failed", error=str(e_db_fetch), asset_url=None)
+            
+            elif task_reported_status and "failed" in task_reported_status:
+                logger.error(f"{detected_service.capitalize()} Celery task {task_id} (DB record {db_record_id}) reported failure: {task_reported_status}. Payload: {celery_payload}")
+                return TaskStatusResponse(task_id=task_id, status="failed", error=f"{detected_service.capitalize()} task failed: {task_reported_status}", asset_url=None)
+            else: 
+                # Task still processing as per its own status, or unknown status
+                current_status = "processing" if task_reported_status else "processing"
+                logger.info(f"{detected_service.capitalize()} Celery task {task_id} (DB record {db_record_id}) current status from task payload: {current_status}")
+                return TaskStatusResponse(task_id=task_id, status=current_status, asset_url=None)
+        
+        else: 
+            logger.error(f"Unknown/unsupported service for task ID {task_id}: {detected_service}")
+            return TaskStatusResponse(task_id=task_id, status="failed", error=f"Unsupported service: {detected_service}", asset_url=None)
+    
     else: # PENDING, RETRY, STARTED, etc.
+        # Handle pending/processing tasks
+        logger.info(f"Celery task {task_id} status: {task_status_from_celery}")
+        
         # For TripoAI tasks, always try to get progress from Tripo API regardless of Celery status
-        if service == "tripoai":
-            try:
-                # Try to get the Celery task result to extract Tripo task ID (even if Celery is pending)
-                celery_payload = celery_task_result.result
-                if celery_payload and isinstance(celery_payload, dict):
+        try:
+            # Try to get the Celery task result to extract info (even if Celery is pending)
+            celery_payload = celery_task_result.result
+            if celery_payload and isinstance(celery_payload, dict):
+                # Auto-detect service type
+                task_name = getattr(celery_task_result.task, 'name', None) if hasattr(celery_task_result, 'task') else None
+                detected_service = service  # Use provided service hint if available
+                
+                if not detected_service:
+                    # Auto-detect from task name
+                    if task_name:
+                        if 'tripo' in task_name.lower():
+                            detected_service = 'tripoai'
+                        elif 'openai' in task_name.lower():
+                            detected_service = 'openai'
+                        elif 'stability' in task_name.lower():
+                            detected_service = 'stability'
+                        elif 'recraft' in task_name.lower():
+                            detected_service = 'recraft'
+                        elif 'flux' in task_name.lower():
+                            detected_service = 'flux'
+                        elif 'downscale' in task_name.lower():
+                            detected_service = 'downscale'
+                    
+                    # Auto-detect from result payload if task name detection failed
+                    if not detected_service and celery_payload:
+                        if celery_payload.get('tripo_task_id'):
+                            detected_service = 'tripoai'
+                        elif celery_payload.get('provider'):
+                            detected_service = celery_payload.get('provider')
+                        else:
+                            # Default fallback for synchronous tasks
+                            detected_service = 'synchronous'
+                
+                logger.info(f"Pending task {task_id}: detected service '{detected_service}' (task_name: {task_name})")
+                
+                # For TripoAI, try to get real progress from Tripo API
+                if detected_service == 'tripoai':
                     tripo_provider_task_id = celery_payload.get("tripo_task_id")
                     db_record_id = celery_payload.get("db_record_id")
                     client_task_id = celery_payload.get("client_task_id")
@@ -216,35 +310,18 @@ async def get_task_status_endpoint(
                         
                         # Poll Tripo for current status and progress
                         tripo_status_response = await tripo_client.poll_tripo_task_status(tripo_provider_task_id)
-                        
-                        # Log the full Tripo response for debugging
-                        logger.info(f"Full Tripo API response for task {tripo_provider_task_id}: {tripo_status_response}")
-                        
                         tripo_data = tripo_status_response.get("data", {})
                         tripo_job_status = tripo_data.get("status")
                         tripo_progress = tripo_data.get("progress", 0)
-                        
-                        # Log the Tripo output URLs if available
-                        output = tripo_data.get("output", {})
-                        if output:
-                            logger.info(f"Tripo task {tripo_provider_task_id} output URLs available:")
-                            if output.get("model"):
-                                logger.info(f"  - model: {output['model']}")
-                            if output.get("base_model"):
-                                logger.info(f"  - base_model: {output['base_model']}")
-                            if output.get("pbr_model"):
-                                logger.info(f"  - pbr_model: {output['pbr_model']}")
-                            if output.get("rendered_image"):
-                                logger.info(f"  - rendered_image: {output['rendered_image']}")
                         
                         logger.info(f"Tripo task {tripo_provider_task_id} status: {tripo_job_status}, progress: {tripo_progress}%")
                         
                         # Return processing status with real Tripo progress
                         return TaskStatusResponse(task_id=task_id, status="processing", progress=tripo_progress)
                         
-            except Exception as e:
-                logger.warning(f"Could not get Tripo progress for Celery task {task_id}: {e}")
-                # Fall back to default behavior
+        except Exception as e:
+            logger.warning(f"Could not get enhanced progress for Celery task {task_id}: {e}")
+            # Fall back to default behavior
         
         # Map Celery statuses to our simplified system (fallback)
         celery_status_mapping = {
@@ -254,5 +331,5 @@ async def get_task_status_endpoint(
             "RECEIVED": "pending"
         }
         mapped_status = celery_status_mapping.get(task_status_from_celery, "processing")
-        logger.info(f"Celery task {task_id} (service: {service}) status from Celery: {task_status_from_celery} -> {mapped_status}")
+        logger.info(f"Celery task {task_id} status from Celery: {task_status_from_celery} -> {mapped_status}")
         return TaskStatusResponse(task_id=task_id, status=mapped_status, asset_url=None) 
