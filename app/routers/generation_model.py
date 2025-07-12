@@ -69,7 +69,7 @@ async def generate_text_to_model_endpoint(
         logger.info(f"Created model record {model_db_id} for task {task_id}")
 
         logger.info(f"Sending {request_data.provider} text-to-model task to Celery for model_db_id: {model_db_id}")
-        
+
         # Dispatch to Tripo task with task_id added to request data
         request_data_with_task_id = request_data.model_dump()
         request_data_with_task_id["task_id"] = task_id
@@ -78,7 +78,7 @@ async def generate_text_to_model_endpoint(
             model_db_id,
             request_data_with_task_id
         )
-            
+
         logger.info(f"Celery task ID: {celery_task.id} for model_db_id: {model_db_id}")
 
         # Update the Supabase record with the Celery task ID and set status to 'processing'
@@ -89,7 +89,7 @@ async def generate_text_to_model_endpoint(
             ai_service_task_id=celery_task.id
         )
         logger.info(f"Updated model record {model_db_id} with Celery task ID {celery_task.id}")
-        
+
         return TaskIdResponse(task_id=celery_task.id)
 
     except HTTPException:
@@ -123,13 +123,13 @@ async def generate_image_to_model_endpoint(
         raise HTTPException(status_code=400, detail="image-to-model supports 'tripo' and 'stability' providers")
 
     # Fetch the image from Supabase first
-    try:
+            try:
         image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
         logger.info(f"Successfully fetched input image for task {task_id} from: {request_data.input_image_asset_url}")
-    except HTTPException as e:
+            except HTTPException as e:
         logger.error(f"Failed to fetch image from Supabase for task {task_id}: {e.detail}")
-        raise
-    except Exception as e:
+                raise
+            except Exception as e:
         logger.error(f"Unexpected error fetching image for task {task_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve input image.")
 

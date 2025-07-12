@@ -269,7 +269,7 @@ if __name__ == "__main__":
     api_key = TEST_API_KEY
     
     # Test image URL (publicly accessible)
-    test_image_url = "https://ftnkfcuhjmmedmoekvwg.supabase.co/storage/v1/object/public/makeit3d-public/portrait-boy.jpg"
+    test_image_url = "https://img.freepik.com/free-photo/happy-man-standing-beach_107420-9868.jpg?semt=ais_hybrid&w=740"
     
     print("🔄 Starting complete image processing workflow...")
     print(f"📸 Original image: {test_image_url}")

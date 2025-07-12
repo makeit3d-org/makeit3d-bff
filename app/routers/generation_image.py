@@ -696,7 +696,7 @@ async def downscale_endpoint(
     # Add task_id to request data for Celery task
     request_data_with_task_id = request_data.model_dump()
     request_data_with_task_id["task_id"] = task_id
-
+    
     # Dispatch Celery task
     celery_task = generate_downscale_image_task.delay(
         image_db_id,

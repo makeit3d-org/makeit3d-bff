@@ -58,11 +58,48 @@ def get_asset_type_for_models() -> str:
     """Get the correct asset type for 3D models based on test mode.""" 
     return get_asset_folder_path("models")
 
-async def fetch_asset_from_storage(asset_supabase_url: str) -> bytes:
-    """Downloads an asset from a given Supabase Storage URL.
+async def fetch_asset_from_url(asset_url: str) -> bytes:
+    """Downloads an asset from any HTTP URL.
 
     Args:
-        asset_supabase_url: The full URL of the asset in Supabase Storage (public or signed).
+        asset_url: The full URL of the asset (can be any publicly accessible HTTP URL).
+
+    Returns:
+        The asset content as bytes.
+
+    Raises:
+        HTTPException: 
+            - 404 if the asset is not found.
+            - 502 if there's an error communicating with the server.
+            - 500 for other unexpected errors.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(asset_url)
+            response.raise_for_status()
+            return response.content
+            
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Asset not found at URL: {asset_url}")
+        # Handle other HTTP errors
+        raise HTTPException(
+            status_code=502, # Bad Gateway, as we failed to get a proper response from the server
+            detail=f"Failed to download asset from URL. Server error: {e.response.status_code} - {e.response.text}"
+        )
+    except Exception as e:
+        # Consider logging the error 'e' here for better debugging
+        # logger.error(f"Unexpected error fetching from URL: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"An unexpected error occurred while fetching asset from URL: {str(e)}"
+        )
+
+async def fetch_asset_from_storage(asset_supabase_url: str) -> bytes:
+    """Downloads an asset from a given Supabase Storage URL or any HTTP URL.
+
+    Args:
+        asset_supabase_url: The full URL of the asset (Supabase Storage URL or any HTTP URL).
 
     Returns:
         The asset content as bytes.
@@ -84,11 +121,10 @@ async def fetch_asset_from_storage(asset_supabase_url: str) -> bytes:
         is_public_url = asset_supabase_url.startswith(public_prefix)
         is_signed_url = asset_supabase_url.startswith(signed_prefix)
         
+        # If it's not a Supabase URL, treat it as a general HTTP URL
         if not (is_public_url or is_signed_url):
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid Supabase Storage URL. Must start with '{public_prefix}' or '{signed_prefix}'."
-            )
+            # Use the general HTTP URL fetcher
+            return await fetch_asset_from_url(asset_supabase_url)
 
         # For signed URLs, download directly via HTTP (they already have authorization)
         if is_signed_url:

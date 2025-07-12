@@ -255,16 +255,16 @@ async def get_task_status_endpoint(
         else: 
             logger.error(f"Unknown/unsupported service for task ID {task_id}: {detected_service}")
             return TaskStatusResponse(task_id=task_id, status="failed", error=f"Unsupported service: {detected_service}", asset_url=None)
-    
+
     else: # PENDING, RETRY, STARTED, etc.
         # Handle pending/processing tasks
         logger.info(f"Celery task {task_id} status: {task_status_from_celery}")
         
         # For TripoAI tasks, always try to get progress from Tripo API regardless of Celery status
-        try:
+            try:
             # Try to get the Celery task result to extract info (even if Celery is pending)
-            celery_payload = celery_task_result.result
-            if celery_payload and isinstance(celery_payload, dict):
+                celery_payload = celery_task_result.result
+                if celery_payload and isinstance(celery_payload, dict):
                 # Auto-detect service type
                 task_name = getattr(celery_task_result.task, 'name', None) if hasattr(celery_task_result, 'task') else None
                 detected_service = service  # Use provided service hint if available
@@ -317,9 +317,9 @@ async def get_task_status_endpoint(
                         # Return processing status with real Tripo progress
                         return TaskStatusResponse(task_id=task_id, status="processing", progress=tripo_progress)
                         
-        except Exception as e:
+            except Exception as e:
             logger.warning(f"Could not get enhanced progress for Celery task {task_id}: {e}")
-            # Fall back to default behavior
+                # Fall back to default behavior
         
         # Map Celery statuses to our simplified system (fallback)
         celery_status_mapping = {
