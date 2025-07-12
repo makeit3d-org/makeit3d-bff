@@ -123,13 +123,13 @@ async def generate_image_to_model_endpoint(
         raise HTTPException(status_code=400, detail="image-to-model supports 'tripo' and 'stability' providers")
 
     # Fetch the image from Supabase first
-            try:
+    try:
         image_bytes = await supabase_handler.fetch_asset_from_storage(request_data.input_image_asset_url)
         logger.info(f"Successfully fetched input image for task {task_id} from: {request_data.input_image_asset_url}")
-            except HTTPException as e:
+    except HTTPException as e:
         logger.error(f"Failed to fetch image from Supabase for task {task_id}: {e.detail}")
-                raise
-            except Exception as e:
+        raise
+    except Exception as e:
         logger.error(f"Unexpected error fetching image for task {task_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve input image.")
 
