@@ -461,8 +461,7 @@ async def create_image_record(
     source_input_asset_id: str | None = None,
     asset_url: str = "pending", # Placeholder value since this field is required in DB
     is_public: bool = False, # Privacy setting - defaults to private
-    metadata: dict | None = None,
-    image_type: str | None = None # Type of image (upload, ai_generated, user_sketch)
+    metadata: dict | None = None
 ) -> dict:
     """Creates a new record in the images table.
 
@@ -477,7 +476,6 @@ async def create_image_record(
         asset_url: Asset URL (defaults to "pending" placeholder since DB requires NOT NULL).
         is_public: Privacy setting - defaults to private.
         metadata: Optional additional metadata.
-        image_type: Type of image (upload, ai_generated, user_sketch).
 
     Returns:
         The newly created record data from Supabase, including its 'id'.
@@ -505,8 +503,6 @@ async def create_image_record(
         insert_data["source_input_asset_id"] = source_input_asset_id
     if metadata is not None:
         insert_data["metadata"] = metadata
-    if image_type is not None:
-        insert_data["image_type"] = image_type
 
     try:
         def _insert_sync():

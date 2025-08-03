@@ -232,6 +232,80 @@ def downscale_image(image_url, api_key, max_size_mb=0.5, aspect_ratio_mode="orig
         
         time.sleep(2)
 
+def generate_video(image_url, api_key, prompt="The subject moves naturally", provider="replicate", model="kling-v2.1"):
+    """
+    Generate a video from an image using the MakeIt3D API.
+    
+    Args:
+        image_url (str): URL to the source image
+        api_key (str): Your MakeIt3D API key
+        prompt (str): Text prompt describing the desired video motion/action
+        provider (str): AI provider to use (currently only "replicate")
+        model (str): Model variant (currently only "kling-v2.1")
+    
+    Returns:
+        str: URL to the generated video
+    """
+    # 1. Submit video generation job - BFF will generate the task ID
+    data = {
+        'provider': provider,
+        'prompt': prompt,
+        'model': model,
+        'mode': 'standard',  # 720p resolution
+        'duration': 5,  # 5 seconds
+        'start_image': image_url,
+        'aspect_ratio': '16:9',
+        'negative_prompt': 'blurry, low quality, distorted'
+    }
+    
+    response = requests.post(
+        'https://api.makeit3d.io/generate/video',  # Real production API
+        headers={
+            'X-API-Key': api_key,
+            'Content-Type': 'application/json'
+        },
+        json=data
+    )
+    
+    if response.status_code != 200:
+        raise Exception(f"Video generation submission failed: {response.status_code} - {response.text}")
+    
+    # 2. BFF returns the task ID it generated
+    result = response.json()
+    task_id = result['task_id']  # BFF-generated task ID
+    
+    print(f"Video generation job submitted with BFF-generated task ID: {task_id}")
+    
+    # 3. Poll using the BFF-provided task ID (videos take longer to generate)
+    start_time = time.time()
+    while True:
+        status_response = requests.get(
+            f'https://api.makeit3d.io/tasks/{task_id}/status',  # Real production API
+            headers={'X-API-Key': api_key}
+        )
+        
+        if status_response.status_code != 200:
+            raise Exception(f"Status check failed: {status_response.status_code} - {status_response.text}")
+        
+        task_result_data = status_response.json()
+        status = task_result_data.get('status')
+        
+        elapsed_time = time.time() - start_time
+        print(f"Status: {status} (elapsed: {elapsed_time:.1f}s)")
+        
+        if status == 'complete':
+            print("✅ Video generation complete!")
+            return task_result_data.get('asset_url')
+        elif status == 'failed':
+            raise Exception(f"Video generation failed: {task_result_data.get('error', 'Unknown error')}")
+        
+        # Video generation takes much longer than images (typically 1-3 minutes)
+        time.sleep(10)  # Wait 10 seconds before next poll
+        
+        # Timeout after 10 minutes
+        if elapsed_time > 600:
+            raise Exception(f"Video generation timed out after {elapsed_time:.1f} seconds")
+
 # Example usage
 if __name__ == "__main__":
     # Use the test API key from Supabase
@@ -297,6 +371,13 @@ if __name__ == "__main__":
         print(f"✅ Image downscaled! URL: {final_url}")
         print()
         
+        # Step 4: Generate video from the processed image
+        print("4️⃣ GENERATE VIDEO")
+        print("🚀 Starting video generation...")
+        video_url = generate_video(test_image_url, api_key, prompt="The person waves and smiles at the camera", provider="replicate", model="kling-v2.1")
+        print(f"✅ Video generated! URL: {video_url}")
+        print()
+        
         # Summary
         print("🎉 WORKFLOW COMPLETE!")
         print("📋 Processing Summary:")
@@ -304,7 +385,9 @@ if __name__ == "__main__":
         print(f"   • Background removed: {bg_removed_url}")
         print(f"   • Upscaled: {upscaled_url}")
         print(f"   • Final optimized: {final_url}")
-        print("📥 Download any of the processed images before URLs expire (1 hour for private buckets)")
+        print(f"   • Video generated: {video_url}")
+        print("📥 Download any of the processed assets before URLs expire (1 hour for private buckets)")
+        print("🎬 The video shows the person waving and smiling at the camera!")
         
     except Exception as e:
         print(f"❌ Error during processing: {e}")
