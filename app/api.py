@@ -6,8 +6,8 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import logging
 
-# Import routers - tasks, generation_image, generation_model, and auth
-from routers import tasks, generation_image, generation_model, auth
+# Import routers - tasks, generation_image, generation_model, generation_video, and auth
+from routers import tasks, generation_image, generation_model, generation_video, auth
 from config import settings
 
 # Configure logging
@@ -38,6 +38,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Include routers
 app.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 app.include_router(generation_image.router, prefix="/generate", tags=["generation-images"])
+app.include_router(generation_video.router, prefix="/generate", tags=["generation-videos"])
 # Temporarily hide generation_model router from docs while keeping functionality
 app.include_router(generation_model.router, prefix="/generate", tags=["generation-models"], include_in_schema=False)
 app.include_router(auth.router, prefix="/auth", tags=["authentication"])

@@ -233,6 +233,51 @@ class ImageInpaintRequest(BaseModel):
     response_format: Optional[str] = "url"
     style_id: Optional[str] = None
 
+class VideoGenerationRequest(BaseModel):
+    """Request schema for video generation. Supports multiple providers and models."""
+    provider: str = Field(..., description="AI provider (e.g., 'replicate')")
+    prompt: str = Field(..., description="Text prompt for video generation")
+    start_image: Optional[str] = Field(None, description="Optional URL of the input image to use as the starting frame.")
+    model: str = Field(..., description="Model variant (e.g., 'kling-v2.1')")
+    mode: Optional[str] = Field("standard", description="Resolution mode: 'standard' (720p) or 'pro' (1080p)")
+    duration: Optional[int] = Field(5, description="Video duration in seconds: 5 or 10")
+    negative_prompt: Optional[str] = Field(None, description="Negative prompt to exclude elements")
+    aspect_ratio: Optional[str] = Field("16:9", description="Aspect ratio: '16:9', '9:16', or '1:1'")
+    cfg_scale: Optional[float] = Field(0.5, description="CFG (Classifier Free Guidance) scale. Range: 0.0-1.0. Higher values stick closer to prompt.")
+    
+    @field_validator('provider')
+    def validate_provider(cls, v):
+        # Allow multiple providers for video generation
+        allowed_providers = ['replicate']  # Can be extended for future providers
+        if v not in allowed_providers:
+            raise ValueError(f"Provider must be one of: {allowed_providers}")
+        return v
+    
+    @field_validator('mode')
+    def validate_mode(cls, v):
+        if v not in ['standard', 'pro']:
+            raise ValueError("Mode must be 'standard' or 'pro'")
+        return v
+    
+    @field_validator('duration')
+    def validate_duration(cls, v):
+        if v not in [5, 10]:
+            raise ValueError("Duration must be 5 or 10 seconds")
+        return v
+    
+    @field_validator('aspect_ratio')
+    def validate_aspect_ratio(cls, v):
+        if v not in ['16:9', '9:16', '1:1']:
+            raise ValueError("Aspect ratio must be '16:9', '9:16', or '1:1'")
+        return v
+    
+    @field_validator('cfg_scale')
+    def validate_cfg_scale(cls, v):
+        if v is not None and (v < 0.0 or v > 1.0):
+            raise ValueError("cfg_scale must be between 0.0 and 1.0")
+        return v
+
+
 # Schemas for responses
 
 class TaskIdResponse(BaseModel):

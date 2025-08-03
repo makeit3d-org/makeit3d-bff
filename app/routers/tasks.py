@@ -61,7 +61,7 @@ async def get_task_status_endpoint(
         task_name = getattr(celery_task_result.task, 'name', None) if hasattr(celery_task_result, 'task') else None
         detected_service = None
         
-        # Auto-detect from task name
+        # Auto-detect from task name (provider-specific detection first)
         if task_name:
             if 'tripo' in task_name.lower():
                 detected_service = 'tripoai'
@@ -76,12 +76,19 @@ async def get_task_status_endpoint(
             elif 'downscale' in task_name.lower():
                 detected_service = 'downscale'
         
-        # Auto-detect from result payload if task name detection failed
+        # Auto-detect from result payload (prioritize this over task name)
         if not detected_service and celery_payload:
             if celery_payload.get('tripo_task_id'):
                 detected_service = 'tripoai'
             elif celery_payload.get('provider'):
+                # Provider field in payload (most reliable)
                 detected_service = celery_payload.get('provider')
+            elif celery_payload.get('service_type') == 'video' and celery_payload.get('asset_url'):
+                # Video tasks that complete with asset_url
+                detected_service = 'replicate'  # Default video provider for now
+            elif task_name and 'video' in task_name.lower() and celery_payload.get('asset_url'):
+                # Video tasks detected by task name (fallback)
+                detected_service = 'replicate'
             else:
                 # Default fallback for synchronous tasks
                 detected_service = 'synchronous'
@@ -182,6 +189,24 @@ async def get_task_status_endpoint(
                 except Exception as e_db_upd: logger.error(f"Failed to update model {db_record_id} status after poll error: {e_db_upd}")
                 return TaskStatusResponse(task_id=task_id, status="failed", error=error_info)
         
+        elif detected_service == "replicate":
+            # Handle Replicate video generation (completed async tasks)
+            # These tasks complete asynchronously and return asset URLs directly
+            
+            if not celery_payload.get("asset_url"):
+                logger.error(f"Replicate Celery task {task_id} result missing asset_url. Payload: {celery_payload}")
+                return TaskStatusResponse(task_id=task_id, status="failed", error="Replicate task result incomplete.", asset_url=None)
+
+            asset_url = celery_payload.get("asset_url")
+            logger.info(f"Replicate task {task_id} completed with asset URL: {asset_url}")
+            
+            return TaskStatusResponse(
+                task_id=task_id, 
+                status="complete", 
+                progress=100, 
+                asset_url=asset_url
+            )
+        
         elif detected_service in ["openai", "stability", "recraft", "flux", "downscale", "synchronous"]:
             # Handle synchronous providers (OpenAI, Stability, Recraft, Flux, Downscale)
             # These complete within the Celery task and return asset URLs directly
@@ -270,7 +295,7 @@ async def get_task_status_endpoint(
                 detected_service = service  # Use provided service hint if available
                 
                 if not detected_service:
-                    # Auto-detect from task name
+                    # Auto-detect from task name (provider-specific detection first)
                     if task_name:
                         if 'tripo' in task_name.lower():
                             detected_service = 'tripoai'
@@ -285,12 +310,19 @@ async def get_task_status_endpoint(
                         elif 'downscale' in task_name.lower():
                             detected_service = 'downscale'
                     
-                    # Auto-detect from result payload if task name detection failed
+                    # Auto-detect from result payload (prioritize this over task name)
                     if not detected_service and celery_payload:
                         if celery_payload.get('tripo_task_id'):
                             detected_service = 'tripoai'
                         elif celery_payload.get('provider'):
+                            # Provider field in payload (most reliable)
                             detected_service = celery_payload.get('provider')
+                        elif celery_payload.get('service_type') == 'video' and celery_payload.get('asset_url'):
+                            # Video tasks that complete with asset_url
+                            detected_service = 'replicate'  # Default video provider for now
+                        elif task_name and 'video' in task_name.lower() and celery_payload.get('asset_url'):
+                            # Video tasks detected by task name (fallback)
+                            detected_service = 'replicate'
                         else:
                             # Default fallback for synchronous tasks
                             detected_service = 'synchronous'

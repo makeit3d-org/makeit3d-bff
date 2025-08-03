@@ -206,11 +206,13 @@ async def upload_asset_to_storage(
     """
     storage_path = f"{get_asset_folder_path(asset_type_plural)}/{task_id}/{file_name}"
     
-    # Determine bucket based on asset type
-    if asset_type_plural.startswith("models") or "models" in asset_type_plural:
+    # Determine bucket based on content type or asset type
+    if 'video' in content_type:
+        bucket_name = 'videos'
+    elif asset_type_plural.startswith("models") or "models" in asset_type_plural:
         bucket_name = "models"
     else:
-        bucket_name = "images"  # Default to images bucket for all other types
+        bucket_name = "images"  # Default to images bucket for other types (including other images)
 
     try:
         # Define a sync wrapper for the Supabase call to run in a threadpool
@@ -287,8 +289,7 @@ async def update_image_record(
     style: str | None = None, 
     source_input_asset_id: str | None = None, 
     is_public: bool | None = None, # Privacy setting update
-    metadata: dict | None = None,
-    image_type: str | None = None  # Added image_type field
+    metadata: dict | None = None
 ) -> dict:
     """Updates a record in the images table.
 
@@ -333,8 +334,6 @@ async def update_image_record(
         update_data["metadata"] = metadata
     if is_public is not None:
         update_data["is_public"] = is_public
-    if image_type is not None:
-        update_data["image_type"] = image_type
 
     try:
         def _update_sync():
@@ -462,8 +461,7 @@ async def create_image_record(
     source_input_asset_id: str | None = None,
     asset_url: str = "pending", # Placeholder value since this field is required in DB
     is_public: bool = False, # Privacy setting - defaults to private
-    metadata: dict | None = None,
-    image_type: str = "ai_generated"  # Default to ai_generated, can be 'upload', 'ai_generated', 'user_sketch'
+    metadata: dict | None = None
 ) -> dict:
     """Creates a new record in the images table.
 
@@ -478,7 +476,6 @@ async def create_image_record(
         asset_url: Asset URL (defaults to "pending" placeholder since DB requires NOT NULL).
         is_public: Privacy setting - defaults to private.
         metadata: Optional additional metadata.
-        image_type: Type of image - 'upload', 'ai_generated', or 'user_sketch' (defaults to 'ai_generated').
 
     Returns:
         The newly created record data from Supabase, including its 'id'.
@@ -495,7 +492,6 @@ async def create_image_record(
         "status": status,
         "asset_url": asset_url,  # Always include asset_url since it's required
         "is_public": is_public,  # Privacy setting
-        "image_type": image_type,  # Always include image_type since it's required
     }
     if user_id is not None:
         insert_data["user_id"] = user_id
@@ -989,4 +985,163 @@ async def get_user_credit_history(user_id: str, limit: int = 50, offset: int = 0
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred while retrieving credit history: {str(e)}"
+        )
+
+# ========================
+# VIDEO SUPPORT FUNCTIONS
+# ========================
+
+async def create_video_record(
+    task_id: str,
+    prompt: str,
+    user_id: str | None = None,
+    style: str | None = None,
+    status: str = "pending",
+    ai_service_task_id: str | None = None,
+    source_input_asset_id: str | None = None,
+    asset_url: str = "pending",
+    is_public: bool = False,
+    metadata: dict | None = None
+) -> dict:
+    """Creates a new video record in the images table (videos are stored as image_type='ai_video').
+
+    Args:
+        task_id: The main task ID.
+        prompt: The prompt used for video generation.
+        user_id: Optional ID of the user who initiated the task.
+        style: Optional style used for generation.
+        status: Initial status of the record (defaults to 'pending').
+        ai_service_task_id: Optional ID from the AI service (e.g., Replicate prediction ID).
+        source_input_asset_id: Optional ID of the input_asset record used as source.
+        asset_url: Asset URL (defaults to "pending" placeholder since DB requires NOT NULL).
+        is_public: Privacy setting - defaults to private.
+        metadata: Optional additional metadata.
+
+    Returns:
+        The newly created record data from Supabase, including its 'id'.
+
+    Raises:
+        HTTPException: 
+            - 502 if there's an error communicating with Supabase.
+            - 500 for other unexpected errors.
+    """
+    table_name = "videos"  # Use the new 'videos' table
+    insert_data = {
+        "task_id": task_id,
+        "prompt": prompt,
+        "status": status,
+        "asset_url": asset_url,
+        "is_public": is_public,
+    }
+    if user_id is not None:
+        insert_data["user_id"] = user_id
+    if style is not None:
+        insert_data["style"] = style
+    if ai_service_task_id is not None:
+        insert_data["ai_service_task_id"] = ai_service_task_id
+    if source_input_asset_id is not None:
+        insert_data["source_input_asset_id"] = source_input_asset_id
+    if metadata is not None:
+        insert_data["metadata"] = metadata
+
+    try:
+        def _insert_sync():
+            response = (
+                get_supabase_client().table(table_name)
+                .insert(insert_data)
+                .execute()
+            )
+            if not response.data:
+                raise HTTPException(status_code=502, detail="Failed to create video record in Supabase or no data returned.")
+            return response.data[0]
+
+        created_record = await run_in_threadpool(_insert_sync)
+        return created_record
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to create video record in Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while creating video record: {str(e)}"
+        )
+
+async def update_video_record(
+    task_id: str,
+    video_id: str,
+    status: str | None = None,
+    asset_url: str | None = None,
+    ai_service_task_id: str | None = None,
+    error: str | None = None,
+    metadata: dict | None = None
+) -> dict:
+    """Updates a video record in the images table.
+
+    Args:
+        task_id: The main task ID.
+        video_id: The ID of the video record to update.
+        status: Optional status to update.
+        asset_url: Optional asset URL to update.
+        ai_service_task_id: Optional AI service task ID to update.
+        error: Optional error message to store in metadata.
+        metadata: Optional metadata to update.
+
+    Returns:
+        The updated record data from Supabase.
+
+    Raises:
+        HTTPException: 
+            - 404 if the record is not found.
+            - 502 if there's an error communicating with Supabase.
+            - 500 for other unexpected errors.
+    """
+    table_name = "videos"
+    update_data = {}
+    if status is not None:
+        update_data["status"] = status
+    if asset_url is not None:
+        update_data["asset_url"] = asset_url
+    if ai_service_task_id is not None:
+        update_data["ai_service_task_id"] = ai_service_task_id
+    
+    update_metadata = metadata or {}
+    if error:
+        update_metadata["error"] = error
+    if update_metadata:
+        update_data["metadata"] = update_metadata
+
+    if not update_data:
+        return  # No fields to update
+
+    try:
+        def _update_sync():
+            response = (
+                get_supabase_client().table(table_name)
+                .update(update_data)
+                .eq("id", video_id)
+                .execute()
+            )
+            if not response.data:
+                raise HTTPException(status_code=404, detail=f"Video record with ID '{video_id}' not found or not updated.")
+            return response.data[0]
+
+        updated_record = await run_in_threadpool(_update_sync)
+        return updated_record
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to update video record in Supabase. Upstream error: {e.response.status_code} - {e.response.text}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while updating video record: {str(e)}"
         ) 

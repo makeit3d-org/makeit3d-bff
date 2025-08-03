@@ -87,6 +87,31 @@ services:
     depends_on:
       - redis
 
+  celery_worker_video:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: makeit3d-bff-celery_video_worker
+    command: celery -A celery_worker worker -l info -P eventlet -c 2 -Q video_queue
+    volumes:
+      - ./app:/app
+    environment:
+      - TRIPO_API_KEY=${TRIPO_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STABILITY_API_KEY=${STABILITY_API_KEY}
+      - RECRAFT_API_KEY=${RECRAFT_API_KEY}
+      - REPLICATE_API_KEY=${REPLICATE_API_KEY}
+      - FLUX_API_KEY=${FLUX_API_KEY}
+      - REGISTRATION_SECRET=${REGISTRATION_SECRET}
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - BFF_BASE_URL=${BFF_BASE_URL:-http://localhost:8000}
+      - TEST_ASSETS_MODE=${TEST_ASSETS_MODE:-False}
+    depends_on:
+      - redis
+
   celery_worker_tripo_refine:
     build:
       context: .
