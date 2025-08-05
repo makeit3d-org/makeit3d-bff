@@ -289,7 +289,8 @@ async def update_image_record(
     style: str | None = None, 
     source_input_asset_id: str | None = None, 
     is_public: bool | None = None, # Privacy setting update
-    metadata: dict | None = None
+    metadata: dict | None = None,
+    image_type: str | None = None
 ) -> dict:
     """Updates a record in the images table.
 
@@ -334,6 +335,8 @@ async def update_image_record(
         update_data["metadata"] = metadata
     if is_public is not None:
         update_data["is_public"] = is_public
+    if image_type is not None:
+        update_data["image_type"] = image_type
 
     try:
         def _update_sync():
@@ -461,7 +464,8 @@ async def create_image_record(
     source_input_asset_id: str | None = None,
     asset_url: str = "pending", # Placeholder value since this field is required in DB
     is_public: bool = False, # Privacy setting - defaults to private
-    metadata: dict | None = None
+    metadata: dict | None = None,
+    image_type: str = "ai_generated"
 ) -> dict:
     """Creates a new record in the images table.
 
@@ -476,6 +480,7 @@ async def create_image_record(
         asset_url: Asset URL (defaults to "pending" placeholder since DB requires NOT NULL).
         is_public: Privacy setting - defaults to private.
         metadata: Optional additional metadata.
+        image_type: The type of image ('ai_generated', 'upload', etc.)
 
     Returns:
         The newly created record data from Supabase, including its 'id'.
@@ -492,6 +497,7 @@ async def create_image_record(
         "status": status,
         "asset_url": asset_url,  # Always include asset_url since it's required
         "is_public": is_public,  # Privacy setting
+        "image_type": image_type,
     }
     if user_id is not None:
         insert_data["user_id"] = user_id
