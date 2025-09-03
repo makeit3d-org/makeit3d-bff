@@ -40,6 +40,7 @@ from tasks.generation_image_tasks import (
     generate_stability_image_task,
     generate_recraft_image_task,
     generate_flux_image_task,
+    generate_replicate_image_task,
     generate_downscale_image_task
 )
 
@@ -127,6 +128,13 @@ async def generate_image_to_image_endpoint(
             request_data_with_task_id,
             "image_to_image"
         )
+    elif request_data.provider == "google":
+        celery_task = generate_replicate_image_task.delay(
+            image_db_id,
+            base64.b64encode(image_bytes).decode('utf-8'),
+            request_data_with_task_id,
+            "image_to_image"
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported provider: {request_data.provider}")
         
@@ -164,8 +172,8 @@ async def generate_text_to_image_endpoint(
     user_id_from_auth = tenant.get_user_id()
 
     # Validate provider
-    if request_data.provider not in ["openai", "stability", "recraft", "flux"]:
-        raise HTTPException(status_code=400, detail="text-to-image supports 'openai', 'stability', 'recraft', and 'flux' providers")
+    if request_data.provider not in ["openai", "stability", "recraft", "flux", "google"]:
+        raise HTTPException(status_code=400, detail="text-to-image supports 'openai', 'stability', 'recraft', 'flux', and 'google' providers")
 
     # For text-to-image, we don't need to fetch an input image
 
@@ -213,6 +221,13 @@ async def generate_text_to_image_endpoint(
             )
         elif request_data.provider == "flux":
             celery_task = generate_flux_image_task.delay(
+                image_db_id,
+                "",  # Empty string for text-to-image
+                request_data_with_task_id,
+                "text_to_image"
+            )
+        elif request_data.provider == "google":
+            celery_task = generate_replicate_image_task.delay(
                 image_db_id,
                 "",  # Empty string for text-to-image
                 request_data_with_task_id,

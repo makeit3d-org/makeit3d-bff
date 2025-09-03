@@ -1,6 +1,6 @@
 import httpx
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -108,6 +108,86 @@ class ReplicateClient:
                 response.raise_for_status()
                 
             return response.json()
+    
+    async def create_image_prediction(
+        self,
+        prompt: str,
+        image_input: List[str],  # List of image URLs
+        model: str = "nano-banana",
+        output_format: str = "jpg"
+    ) -> Dict[str, Any]:
+        """
+        Create an image generation prediction using Replicate API.
+        
+        Args:
+            prompt: Text prompt for image generation
+            image_input: List of input image URLs
+            model: Model name (e.g., 'nano-banana')
+            output_format: Output format ('jpg' or 'png')
+            
+        Returns:
+            Dict containing prediction data
+        """
+        endpoint = f"{self.base_url}/predictions"
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        
+        # Map model to full Replicate version string
+        model_versions = {
+            "nano-banana": "google/nano-banana"
+        }
+        
+        version_id = model_versions.get(model, f"google/{model}")
+        
+        # Build input parameters for Google Nano Banana
+        input_data = {
+            "prompt": prompt,
+            "output_format": output_format
+        }
+        
+        # Add image_input if provided
+        if image_input:
+            input_data["image_input"] = image_input
+        
+        data = {
+            "version": version_id,
+            "input": input_data
+        }
+        
+        logger.info(f"Creating Replicate image prediction with data: {data}")
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(endpoint, json=data, headers=headers)
+            
+            if response.status_code != 201:
+                logger.error(f"Replicate API error: {response.status_code} - {response.text}")
+                response.raise_for_status()
+                
+            result = response.json()
+            logger.info(f"Replicate image prediction created: {result.get('id')}")
+            return result
+
+    async def download_prediction_output(self, output_url: str) -> bytes:
+        """
+        Download the generated image from Replicate output URL.
+        
+        Args:
+            output_url: URL of the generated image
+            
+        Returns:
+            Image data as bytes
+        """
+        logger.info(f"Downloading image from Replicate output URL: {output_url}")
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(output_url)
+            response.raise_for_status()
+            
+            logger.info(f"Successfully downloaded image: {len(response.content)} bytes")
+            return response.content
 
 # Create a global instance
 replicate_client = ReplicateClient()

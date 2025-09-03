@@ -25,7 +25,7 @@ class ImageToImageRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     """Request schema for image-to-image generation (multi-provider)."""
-    provider: str = Field(..., description="AI provider (e.g., 'openai', 'stability', 'recraft', 'flux')")
+    provider: str = Field(..., description="AI provider (e.g., 'openai', 'stability', 'recraft', 'flux', 'google')")
     input_image_asset_url: str = Field(..., description="URL of the input image")
     prompt: str = Field(..., description="Text prompt for generation")
     style: Optional[str] = Field(None, description="Style preset for the generated image")
@@ -54,6 +54,11 @@ class ImageToImageRequest(BaseModel):
     aspect_ratio: Optional[str] = "1:1" # Flux aspect ratio
     safety_tolerance: Optional[int] = Field(default=2, ge=0, le=6) # Flux safety tolerance
     prompt_upsampling: Optional[bool] = False # Flux prompt upsampling
+    
+    # Google/Replicate parameters (for nano-banana model)
+    google_model: Optional[str] = Field("nano-banana", description="Google model name (e.g., 'nano-banana')")
+    additional_images: Optional[List[str]] = Field(None, description="Additional input image URLs for multi-image models")
+    replicate_output_format: Optional[str] = Field("jpg", description="Output format for Replicate models")
 
     @field_validator('background')
     def check_background_value(cls, value: Optional[str]):
@@ -65,7 +70,7 @@ class TextToImageRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     """Request schema for text-to-image generation (multi-provider)."""
-    provider: str = Field(..., description="AI provider (e.g., 'openai', 'stability', 'recraft', 'flux')")
+    provider: str = Field(..., description="AI provider (e.g., 'openai', 'stability', 'recraft', 'flux', 'google')")
     prompt: str = Field(..., description="Text prompt for generation")
     style: Optional[str] = Field(None, description="Style preset for the generated image")
     model: Optional[str] = Field(None, description="Model variant")
@@ -94,6 +99,10 @@ class TextToImageRequest(BaseModel):
     # Flux parameters (for text-to-image)
     safety_tolerance: Optional[int] = Field(default=2, ge=0, le=6) # Flux safety tolerance
     prompt_upsampling: Optional[bool] = False # Flux prompt upsampling
+    
+    # Google/Replicate parameters (for nano-banana model)
+    google_model: Optional[str] = Field("nano-banana", description="Google model name (e.g., 'nano-banana')")
+    replicate_output_format: Optional[str] = Field("jpg", description="Output format for Replicate models")
 
 class TextToModelRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())

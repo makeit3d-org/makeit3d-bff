@@ -706,6 +706,211 @@ def generate_flux_image_task(self, image_db_id: str, image_data_b64: str, reques
         logger.error(f"Celery task {celery_task_id} for DB {image_db_id}: Final error state: {type(e).__name__} - {str(e)}", exc_info=True)
         raise 
 
+# Replicate AI Image Tasks (Google Nano Banana)
+
+@celery_app.task(bind=True)
+def generate_replicate_image_task(self, image_db_id: str, image_data_b64: str, request_data_dict: dict, operation_type: str):
+    """Celery task for Replicate AI image operations (Google Nano Banana)."""
+    client_task_id = request_data_dict.get("task_id")
+    celery_task_id = self.request.id
+    logger.info(f"Celery task {celery_task_id} for DB record {image_db_id} (Client Task ID: {client_task_id}): Starting Replicate {operation_type}.")
+    
+    # Decode base64 image data back to bytes
+    if image_data_b64:
+        image_bytes = base64.b64decode(image_data_b64)
+    else:
+        image_bytes = b""
+    
+    async def process_replicate_request():
+        final_status = "failed"
+        error_message = None
+        prediction_id = None
+        
+        try:
+            # Update DB record to 'processing'
+            await supabase_handler.update_image_record(
+                task_id=client_task_id,
+                image_id=image_db_id,
+                status="processing"
+            )
+            logger.info(f"Celery task {celery_task_id}: Updated DB record {image_db_id} status to 'processing'.")
+
+            # Import replicate client
+            from ai_clients.replicate_client import replicate_client
+            
+            # Call appropriate Replicate AI method based on operation type
+            if operation_type == "image_to_image":
+                request_data = ImageToImageRequest(**request_data_dict)
+                
+                # Upload input image to temporary accessible location to get URL
+                temp_file_name = f"temp_input_{client_task_id}.jpg"
+                temp_image_url = await supabase_handler.upload_asset_to_storage(
+                    task_id=client_task_id,
+                    asset_type_plural="temp",
+                    file_name=temp_file_name,
+                    asset_data=image_bytes,
+                    content_type="image/jpeg"
+                )
+                
+                # Prepare image input list
+                image_input = [temp_image_url]
+                if hasattr(request_data, 'additional_images') and request_data.additional_images:
+                    image_input.extend(request_data.additional_images)
+                
+                # Create Replicate prediction
+                prediction_response = await replicate_client.create_image_prediction(
+                    prompt=request_data.prompt,
+                    image_input=image_input,
+                    model=getattr(request_data, 'google_model', 'nano-banana'),
+                    output_format=getattr(request_data, 'replicate_output_format', 'jpg')
+                )
+                
+            elif operation_type == "text_to_image":
+                request_data = TextToImageRequest(**request_data_dict)
+                
+                # For text-to-image, no input images needed
+                prediction_response = await replicate_client.create_image_prediction(
+                    prompt=request_data.prompt,
+                    image_input=[],  # No input images for text-to-image
+                    model=getattr(request_data, 'google_model', 'nano-banana'),
+                    output_format=getattr(request_data, 'replicate_output_format', 'jpg')
+                )
+            else:
+                error_message = f"Unknown Replicate operation type: {operation_type}"
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
+
+            prediction_id = prediction_response.get("id")
+            if not prediction_id:
+                error_message = "Replicate API did not return prediction ID."
+                logger.error(f"Celery task {celery_task_id}: {error_message}")
+                raise CeleryTaskException(error_message)
+
+            logger.info(f"Celery task {celery_task_id}: Got Replicate prediction ID: {prediction_id}")
+
+            # Poll for completion
+            max_polls = 60
+            poll_interval = 5
+            
+            for poll_count in range(max_polls):
+                logger.info(f"Celery task {celery_task_id}: Polling Replicate prediction {prediction_id} (attempt {poll_count + 1})")
+                
+                status_response = await replicate_client.get_prediction_status(prediction_id)
+                
+                status = status_response.get("status")
+                output = status_response.get("output")
+                error = status_response.get("error")
+                
+                logger.info(f"Celery task {celery_task_id}: Replicate prediction {prediction_id} status: {status}")
+                
+                if status == "succeeded" and output:
+                    # Replicate returns URL directly for simple outputs, or nested structure
+                    if isinstance(output, str):
+                        output_url = output
+                    elif isinstance(output, list) and output:
+                        output_url = output[0] if isinstance(output[0], str) else output[0].get('url')
+                    else:
+                        output_url = output.get('url') if isinstance(output, dict) else None
+                    
+                    if not output_url:
+                        error_message = "Replicate output format not recognized"
+                        logger.error(f"Celery task {celery_task_id}: {error_message}. Output: {output}")
+                        raise CeleryTaskException(error_message)
+                    
+                    # Download the generated image
+                    logger.info(f"Celery task {celery_task_id}: Downloading image from {output_url}")
+                    result_bytes = await replicate_client.download_prediction_output(output_url)
+                    
+                    # Upload result to Supabase
+                    output_format = getattr(request_data, 'replicate_output_format', 'jpg')
+                    file_name = f"google_{operation_type}.{output_format}"
+                    # Fix MIME type - use jpeg instead of jpg
+                    content_type = "image/jpeg" if output_format == "jpg" else f"image/{output_format}"
+                    
+                    supabase_url = await supabase_handler.upload_asset_to_storage(
+                        task_id=client_task_id,
+                        asset_type_plural="images",
+                        file_name=file_name,
+                        asset_data=result_bytes,
+                        content_type=content_type
+                    )
+                    
+                    # Update DB record with result
+                    await supabase_handler.update_image_record(
+                        task_id=client_task_id,
+                        image_id=image_db_id,
+                        asset_url=supabase_url,
+                        status="complete",
+                        prompt=request_data_dict.get("prompt"),
+                        style=request_data_dict.get("style")
+                    )
+                    
+                    final_status = "complete"
+                    logger.info(f"Celery task {celery_task_id}: Updated DB record {image_db_id} with asset_url {supabase_url} and status 'complete'.")
+                    
+                    return {
+                        'status': final_status, 
+                        'asset_url': supabase_url, 
+                        'db_record_id': image_db_id, 
+                        'prediction_id': prediction_id,
+                        'client_task_id': client_task_id
+                    }
+                    
+                elif status == "failed":
+                    error_message = f"Replicate prediction failed: {error}"
+                    logger.error(f"Celery task {celery_task_id}: {error_message}")
+                    raise CeleryTaskException(error_message)
+                    
+                else:
+                    # Still processing, wait and continue polling
+                    await asyncio.sleep(poll_interval)
+                    continue
+            
+            # If we get here, polling timed out
+            error_message = f"Replicate prediction {prediction_id} did not complete within {max_polls} polls"
+            logger.error(f"Celery task {celery_task_id}: {error_message}")
+            raise CeleryTaskException(error_message)
+
+        except httpx.HTTPStatusError as e_http:
+            error_message = f"HTTP error during Replicate call: {e_http.response.status_code} - {getattr(e_http.response, 'text', 'No text')}"
+            logger.error(f"Celery task {celery_task_id} for DB {image_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+        except CeleryTaskException as e_celery_task:
+            error_message = str(e_celery_task)
+            logger.error(f"Celery task {celery_task_id} for DB {image_db_id}: CeleryTaskException: {error_message}", exc_info=True)
+            final_status = "failed"
+        except Exception as e_unhandled:
+            error_message = f"Unexpected error: {type(e_unhandled).__name__} - {str(e_unhandled)}"
+            logger.error(f"Celery task {celery_task_id} for DB {image_db_id}: {error_message}", exc_info=True)
+            final_status = "failed"
+
+        # Update DB record with final status if failed
+        if final_status != "complete":
+            try:
+                await supabase_handler.update_image_record(
+                    task_id=client_task_id,
+                    image_id=image_db_id,
+                    status=final_status
+                )
+                logger.info(f"Celery task {celery_task_id}: Updated DB record {image_db_id} status to '{final_status}'.")
+            except Exception as db_update_e:
+                logger.error(f"Celery task {celery_task_id}: CRITICAL - Failed to update DB record {image_db_id} to '{final_status}': {db_update_e}", exc_info=True)
+        
+        if error_message:
+            raise CeleryTaskException(error_message)
+
+    # Synchronous wrapper (same pattern as Flux)
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(process_replicate_request())
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.error(f"Celery task {celery_task_id} for DB {image_db_id}: Final error state: {type(e).__name__} - {str(e)}", exc_info=True)
+        raise
+
 @celery_app.task(bind=True)
 def generate_downscale_image_task(self, image_db_id: str, image_data_b64: str, request_data_dict: dict):
     """Celery task to downscale images using basic image processing with Pillow."""
